@@ -9,6 +9,7 @@ import Foundation
 
 @objc protocol ADBServiceProtocol {
     func listDevices(completion: @escaping ([AndroidDevice]?, Error?) -> Void)
+    func getDeviceDetails(deviceId: String, completion: @escaping (AndroidDevice?, Error?) -> Void)
 }
 
 

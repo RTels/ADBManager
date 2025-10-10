@@ -6,13 +6,19 @@
 //
 
 
-
 import Foundation
 
 @objc(AndroidDevice)
 class AndroidDevice: NSObject, NSSecureCoding, Identifiable {
     let id: String
     let state: DeviceState
+    
+    // New optional properties for detailed info
+    var model: String?
+    var manufacturer: String?
+    var androidVersion: String?
+    var batteryLevel: String?
+    var apiLevel: String?
     
     init(id: String, stateString: String) {
         self.id = id
@@ -36,12 +42,22 @@ class AndroidDevice: NSObject, NSSecureCoding, Identifiable {
         }
         self.id = id
         self.state = DeviceState(rawValue: stateRaw) ?? .unknown
+        self.model = coder.decodeObject(of: NSString.self, forKey: "model") as String?
+        self.manufacturer = coder.decodeObject(of: NSString.self, forKey: "manufacturer") as String?
+        self.androidVersion = coder.decodeObject(of: NSString.self, forKey: "androidVersion") as String?
+        self.batteryLevel = coder.decodeObject(of: NSString.self, forKey: "batteryLevel") as String?
+        self.apiLevel = coder.decodeObject(of: NSString.self, forKey: "apiLevel") as String?
         super.init()
     }
     
     func encode(with coder: NSCoder) {
         coder.encode(id as NSString, forKey: "id")
         coder.encode(state.rawValue as NSString, forKey: "state")
+        if let model = model { coder.encode(model as NSString, forKey: "model") }
+        if let manufacturer = manufacturer { coder.encode(manufacturer as NSString, forKey: "manufacturer") }
+        if let androidVersion = androidVersion { coder.encode(androidVersion as NSString, forKey: "androidVersion") }
+        if let batteryLevel = batteryLevel { coder.encode(batteryLevel as NSString, forKey: "batteryLevel") }
+        if let apiLevel = apiLevel { coder.encode(apiLevel as NSString, forKey: "apiLevel") }
     }
 }
 
@@ -69,3 +85,4 @@ class AndroidDevice: NSObject, NSSecureCoding, Identifiable {
         }
     }
 }
+

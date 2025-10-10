@@ -3,6 +3,7 @@
 //  Created by rrft on 02/10/25.
 //
 
+
 import Foundation
 
 class adbXPCService: NSObject, ADBServiceProtocol {
@@ -18,54 +19,126 @@ class adbXPCService: NSObject, ADBServiceProtocol {
         }
     }
     
+    func getDeviceDetails(deviceId: String, completion: @escaping (AndroidDevice?, Error?) -> Void) {
+        print("🔧 XPC: getDeviceDetails called for: \(deviceId)")
+        
+        Task {
+            do {
+                print("🔧 XPC: Fetching details...")
+                let device = try await fetchDeviceDetails(deviceId: deviceId)
+                print("🔧 XPC: Got device details!")
+                print("   - Model: \(device.model ?? "nil")")
+                print("   - Manufacturer: \(device.manufacturer ?? "nil")")
+                completion(device, nil)
+            } catch {
+                print("❌ XPC: Error fetching details: \(error)")
+                completion(nil, error)
+            }
+        }
+    }
+
+
+    
     private func performListDevices() async throws -> [AndroidDevice] {
-        // Get the adb executable path from bundle
         guard let adbPath = Bundle.main.path(forResource: "adb", ofType: nil) else {
             throw ADBError.adbNotFound
         }
         
-        // Create process to run adb
         let process = Process()
         process.executableURL = URL(fileURLWithPath: adbPath)
         process.arguments = ["devices"]
         
-        // Capture output
         let pipe = Pipe()
         process.standardOutput = pipe
         
-        // Run the process
         try process.run()
         process.waitUntilExit()
         
-        // Read output
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else {
             throw ADBError.invalidOutput
         }
         
-        // Parse the output
         return parseADBOutput(output)
     }
     
-    private func parseADBOutput(_ output: String) -> [AndroidDevice] {
-        let lines = output.components(separatedBy: .newlines)
-        var devices: [AndroidDevice] = []
-        
-        for line in lines {
-            if line.isEmpty || line.contains("List of devices") {
-                continue
-            }
-            
-            let components = line.components(separatedBy: .whitespaces)
-                .filter { !$0.isEmpty }
-            
-            if components.count >= 2 {
-                let device = AndroidDevice(id: components[0], stateString: components[1])
-                devices.append(device)
-            }
+    private func fetchDeviceDetails(deviceId: String) async throws -> AndroidDevice {
+        guard let adbPath = Bundle.main.path(forResource: "adb", ofType: nil) else {
+            throw ADBError.adbNotFound
         }
         
-        return devices
+        let device = AndroidDevice(id: deviceId, stateString: "device")
+        
+        // Fetch model
+        device.model = try? await runADBCommand(adbPath: adbPath, deviceId: deviceId, command: "shell", args: ["getprop", "ro.product.model"])
+        
+        // Fetch manufacturer
+        device.manufacturer = try? await runADBCommand(adbPath: adbPath, deviceId: deviceId, command: "shell", args: ["getprop", "ro.product.manufacturer"])
+        
+        // Fetch Android version
+        device.androidVersion = try? await runADBCommand(adbPath: adbPath, deviceId: deviceId, command: "shell", args: ["getprop", "ro.build.version.release"])
+        
+        // Fetch API level
+        device.apiLevel = try? await runADBCommand(adbPath: adbPath, deviceId: deviceId, command: "shell", args: ["getprop", "ro.build.version.sdk"])
+        
+        // Fetch battery (parse from dumpsys)
+        if let batteryOutput = try? await runADBCommand(adbPath: adbPath, deviceId: deviceId, command: "shell", args: ["dumpsys", "battery"]) {
+            device.batteryLevel = parseBatteryLevel(from: batteryOutput)
+        }
+        
+        return device
+    }
+    
+    private func runADBCommand(adbPath: String, deviceId: String, command: String, args: [String]) async throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adbPath)
+        process.arguments = ["-s", deviceId, command] + args
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        
+        try process.run()
+        process.waitUntilExit()
+        
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            throw ADBError.invalidOutput
+        }
+        
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    private func parseBatteryLevel(from output: String) -> String? {
+        let lines = output.components(separatedBy: .newlines)
+        for line in lines {
+            if line.contains("level:") {
+                let components = line.components(separatedBy: ":")
+                if components.count > 1 {
+                    return components[1].trimmingCharacters(in: .whitespaces) + "%"
+                }
+            }
+        }
+        return nil
+    }
+    
+    private func parseADBOutput(_ output: String) -> [AndroidDevice] {
+        output
+            .components(separatedBy: .newlines)
+            .compactMap { line -> AndroidDevice? in
+                guard !line.isEmpty,
+                      !line.contains("List of devices") else {
+                    return nil
+                }
+                
+                let components = line.components(separatedBy: .whitespaces)
+                    .filter { !$0.isEmpty }
+                
+                guard components.count >= 2 else {
+                    return nil
+                }
+                
+                return AndroidDevice(id: components[0], stateString: components[1])
+            }
     }
 }
 
@@ -73,6 +146,7 @@ enum ADBError: Error {
     case adbNotFound
     case invalidOutput
 }
+
 
 
 /*

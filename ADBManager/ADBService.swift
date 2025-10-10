@@ -9,6 +9,7 @@ import Foundation
 
 @MainActor
 class ADBService: ObservableObject {
+    
     @Published var devices: [AndroidDevice] = []
     @Published var isLoading = false
     @Published var error: String?
@@ -54,7 +55,7 @@ class ADBService: ObservableObject {
         error = nil
         
         guard let connection = connection else {
-            self.error = "No XPC connection."
+            self.error = "No XPC connection"
             self.isLoading = false
             return
         }
@@ -67,13 +68,13 @@ class ADBService: ObservableObject {
         }) as? ADBServiceProtocol
         
         guard let service = service else {
-            self.error = "Could not connect to XPC service."
+            self.error = "Could not connect to XPC service"
             self.isLoading = false
             return
         }
         
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            service.listDevices { [weak self] devices, error in
+            service.listDevices { [weak self] newDevices, error in
                 Task { @MainActor in
                     guard let self = self else {
                         continuation.resume()
@@ -82,8 +83,23 @@ class ADBService: ObservableObject {
                     
                     if let error = error {
                         self.error = error.localizedDescription
-                    } else if let devices = devices {
-                        self.devices = devices
+                    } else if let newDevices = newDevices {
+                        // Preserve details from existing devices
+                        let updatedDevices = newDevices.map { newDevice -> AndroidDevice in
+                            // Find if we already have this device with details
+                            if let existingDevice = self.devices.first(where: { $0.id == newDevice.id }),
+                               existingDevice.model != nil {
+                                // Copy details to new device
+                                newDevice.model = existingDevice.model
+                                newDevice.manufacturer = existingDevice.manufacturer
+                                newDevice.androidVersion = existingDevice.androidVersion
+                                newDevice.batteryLevel = existingDevice.batteryLevel
+                                newDevice.apiLevel = existingDevice.apiLevel
+                            }
+                            return newDevice
+                        }
+                        
+                        self.devices = updatedDevices
                     }
                     
                     if showLoading {
@@ -94,6 +110,64 @@ class ADBService: ObservableObject {
             }
         }
     }
+
+    
+
+    func fetchDeviceDetails(for device: AndroidDevice) async {
+        print("📡 ADBService: Starting fetch for device \(device.id)")
+        
+        guard let connection = connection else {
+            print("❌ ADBService: No connection!")
+            return
+        }
+        
+        print("📡 ADBService: Getting service proxy...")
+        let service = connection.remoteObjectProxyWithErrorHandler({ error in
+            print("❌ ADBService: Proxy error: \(error)")
+        }) as? ADBServiceProtocol
+        
+        guard let service = service else {
+            print("❌ ADBService: Could not cast to protocol!")
+            return
+        }
+        
+        print("📡 ADBService: Calling getDeviceDetails via XPC...")
+        
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            service.getDeviceDetails(deviceId: device.id) { [weak self] detailedDevice, error in
+                print("📡 ADBService: Got XPC response")
+                
+                if let error = error {
+                    print("❌ ADBService: Error from XPC: \(error)")
+                }
+                
+                if let detailedDevice = detailedDevice {
+                    print("✅ ADBService: Got detailed device!")
+                    print("   - Model: \(detailedDevice.model ?? "nil")")
+                    print("   - Manufacturer: \(detailedDevice.manufacturer ?? "nil")")
+                    print("   - Android: \(detailedDevice.androidVersion ?? "nil")")
+                    
+                    Task { @MainActor in
+                        if let index = self?.devices.firstIndex(where: { $0.id == device.id }) {
+                            print("✅ ADBService: Updating device at index \(index)")
+                            self?.devices[index] = detailedDevice
+                        } else {
+                            print("❌ ADBService: Could not find device in array!")
+                        }
+                        continuation.resume()
+                    }
+                } else {
+                    print("❌ ADBService: detailedDevice is nil!")
+                    continuation.resume()
+                }
+            }
+        }
+        
+        print("📡 ADBService: fetchDeviceDetails completed")
+    }
+
+
+
     
     deinit {
         pollingTask?.cancel()

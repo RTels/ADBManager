@@ -5,6 +5,13 @@
 //  Created by rrft on 02/10/25.
 //
 
+//
+//  ContentView.swift
+//  ADBManager
+//
+//  Created by rrft on 02/10/25.
+//
+
 import SwiftUI
 
 struct ContentView: View {
@@ -127,13 +134,14 @@ struct ContentView: View {
     private var detailView: some View {
         Group {
             if let device = selectedDevice {
-                DeviceDetailView(device: device)
+                DeviceDetailView(adbService: adbService, deviceId: device.id)  // ← Pass ID instead
             } else {
                 placeholderView
             }
         }
         .frame(minWidth: 400)
     }
+
     
     private var placeholderView: some View {
         VStack(spacing: 16) {
@@ -164,7 +172,7 @@ struct DeviceListItem: View {
             statusIndicator
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(device.id)
+                Text(displayName)
                     .font(.body)
                     .lineLimit(1)
                 
@@ -183,6 +191,14 @@ struct DeviceListItem: View {
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+    }
+    
+    private var displayName: String {
+        // Prefer model name, fallback to ID
+        if let model = device.model, !model.isEmpty {
+            return model
+        }
+        return device.id
     }
     
     private var statusIndicator: some View {
@@ -215,46 +231,77 @@ struct DeviceListItem: View {
     }
 }
 
+
 // MARK: - Device Detail View (Right Panel)
 
 struct DeviceDetailView: View {
-    let device: AndroidDevice
+    @ObservedObject var adbService: ADBService
+    let deviceId: String  // ← Changed from device to deviceId
+    @State private var isLoadingDetails = false
+    
+    // Computed property to get current device from service
+    private var device: AndroidDevice? {
+        adbService.devices.first(where: { $0.id == deviceId })
+    }
     
     var body: some View {
+        Group {
+            if let device = device {
+                deviceContent(device: device)
+            } else {
+                Text("Device not found")
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func deviceContent(device: AndroidDevice) -> some View {
         ScrollView {
             VStack(spacing: 24) {
-                deviceHeader
+                deviceHeader(device: device)
                 
                 Divider()
                 
-                deviceInfo
+                if isLoadingDetails {
+                    ProgressView("Loading device details...")
+                } else {
+                    deviceInfo(device: device)
+                }
                 
                 Spacer()
             }
             .padding()
         }
         .background(Color(NSColor.textBackgroundColor))
+        .task(id: deviceId) {
+            if device.model == nil && device.state == .device {
+                isLoadingDetails = true
+                await adbService.fetchDeviceDetails(for: device)
+                isLoadingDetails = false
+            }
+        }
     }
     
-    private var deviceHeader: some View {
+    private func deviceHeader(device: AndroidDevice) -> some View {
         VStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(statusColor.opacity(0.2))
+                    .fill(statusColor(for: device).opacity(0.2))
                     .frame(width: 100, height: 100)
                 
                 Image(systemName: "iphone.gen3")
                     .font(.system(size: 50))
-                    .foregroundColor(statusColor)
+                    .foregroundColor(statusColor(for: device))
             }
             
-            Text(device.id)
+            Text(device.model ?? device.id)
                 .font(.title)
                 .fontWeight(.semibold)
             
             HStack(spacing: 8) {
                 Circle()
-                    .fill(statusColor)
+                    .fill(statusColor(for: device))
                     .frame(width: 8, height: 8)
                 
                 Text(device.state.rawValue.capitalized)
@@ -266,21 +313,40 @@ struct DeviceDetailView: View {
         .padding()
     }
     
-    private var deviceInfo: some View {
+    private func deviceInfo(device: AndroidDevice) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Device Information")
                 .font(.headline)
             
             InfoRow(label: "Device ID", value: device.id)
             InfoRow(label: "Status", value: device.state.rawValue.capitalized)
-            InfoRow(label: "Connection", value: device.state == .device ? "Active" : "Inactive")
+            
+            if let model = device.model {
+                InfoRow(label: "Model", value: model)
+            }
+            
+            if let manufacturer = device.manufacturer {
+                InfoRow(label: "Manufacturer", value: manufacturer)
+            }
+            
+            if let androidVersion = device.androidVersion {
+                InfoRow(label: "Android Version", value: androidVersion)
+            }
+            
+            if let apiLevel = device.apiLevel {
+                InfoRow(label: "API Level", value: apiLevel)
+            }
+            
+            if let batteryLevel = device.batteryLevel {
+                InfoRow(label: "Battery", value: batteryLevel)
+            }
         }
         .padding()
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
     }
     
-    private var statusColor: Color {
+    private func statusColor(for device: AndroidDevice) -> Color {
         switch device.state {
         case .device: return .green
         case .offline: return .orange
@@ -289,6 +355,7 @@ struct DeviceDetailView: View {
         }
     }
 }
+
 
 struct InfoRow: View {
     let label: String
