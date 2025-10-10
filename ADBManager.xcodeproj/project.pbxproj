@@ -6,20 +6,93 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AE348EA12E8EDB6E00F4F173 /* ADBServiceXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AE348E9F2E8EDB6E00F4F173 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AE348E7A2E8EDAFE00F4F173 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE348E942E8EDB6E00F4F173;
+			remoteInfo = adbXPCService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AE348EA62E8EDB6E00F4F173 /* Embed XPC Services */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
+			dstSubfolderSpec = 16;
+			files = (
+				AE348EA12E8EDB6E00F4F173 /* ADBServiceXPC.xpc in Embed XPC Services */,
+			);
+			name = "Embed XPC Services";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		AE348E822E8EDAFE00F4F173 /* ADBManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ADBManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = ADBServiceXPC.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AE348EB22E8EECF300F4F173 /* Exceptions for "ADBManager" folder in "AdbXPCService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ADBService.swift,
+				AndroidDevice.swift,
+			);
+			target = AE348E942E8EDB6E00F4F173 /* AdbXPCService */;
+		};
+		AE348EC02E8F03B600F4F173 /* Exceptions for "ADBServiceXPC" folder in "ADBManager" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ADBServiceProtocol.swift,
+			);
+			target = AE348E812E8EDAFE00F4F173 /* ADBManager */;
+		};
+		AE8A4E1C2E904E7200DFAF31 /* Exceptions for "ADBServiceXPC" folder in "AdbXPCService" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AE348E942E8EDB6E00F4F173 /* AdbXPCService */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AE348E842E8EDAFE00F4F173 /* ADBManager */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AE348EB22E8EECF300F4F173 /* Exceptions for "ADBManager" folder in "AdbXPCService" target */,
+			);
 			path = ADBManager;
+			sourceTree = "<group>";
+		};
+		AE348E962E8EDB6E00F4F173 /* ADBServiceXPC */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AE348EC02E8F03B600F4F173 /* Exceptions for "ADBServiceXPC" folder in "ADBManager" target */,
+				AE8A4E1C2E904E7200DFAF31 /* Exceptions for "ADBServiceXPC" folder in "AdbXPCService" target */,
+			);
+			path = ADBServiceXPC;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		AE348E7F2E8EDAFE00F4F173 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE348E922E8EDB6E00F4F173 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				AE348E842E8EDAFE00F4F173 /* ADBManager */,
+				AE348E962E8EDB6E00F4F173 /* ADBServiceXPC */,
 				AE348E832E8EDAFE00F4F173 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +115,7 @@
 			isa = PBXGroup;
 			children = (
 				AE348E822E8EDAFE00F4F173 /* ADBManager.app */,
+				AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +130,12 @@
 				AE348E7E2E8EDAFE00F4F173 /* Sources */,
 				AE348E7F2E8EDAFE00F4F173 /* Frameworks */,
 				AE348E802E8EDAFE00F4F173 /* Resources */,
+				AE348EA62E8EDB6E00F4F173 /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AE348EA02E8EDB6E00F4F173 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AE348E842E8EDAFE00F4F173 /* ADBManager */,
@@ -69,6 +146,28 @@
 			productName = ADBManager;
 			productReference = AE348E822E8EDAFE00F4F173 /* ADBManager.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AE348E942E8EDB6E00F4F173 /* AdbXPCService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AE348EA32E8EDB6E00F4F173 /* Build configuration list for PBXNativeTarget "AdbXPCService" */;
+			buildPhases = (
+				AE348E912E8EDB6E00F4F173 /* Sources */,
+				AE348E922E8EDB6E00F4F173 /* Frameworks */,
+				AE348E932E8EDB6E00F4F173 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AE348E962E8EDB6E00F4F173 /* ADBServiceXPC */,
+			);
+			name = AdbXPCService;
+			packageProductDependencies = (
+			);
+			productName = adbXPCService;
+			productReference = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */;
+			productType = "com.apple.product-type.xpc-service";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +180,9 @@
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					AE348E812E8EDAFE00F4F173 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					AE348E942E8EDB6E00F4F173 = {
 						CreatedOnToolsVersion = 16.4;
 					};
 				};
@@ -100,12 +202,20 @@
 			projectRoot = "";
 			targets = (
 				AE348E812E8EDAFE00F4F173 /* ADBManager */,
+				AE348E942E8EDB6E00F4F173 /* AdbXPCService */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AE348E802E8EDAFE00F4F173 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE348E932E8EDB6E00F4F173 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +232,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AE348E912E8EDB6E00F4F173 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AE348EA02E8EDB6E00F4F173 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AE348E942E8EDB6E00F4F173 /* AdbXPCService */;
+			targetProxy = AE348E9F2E8EDB6E00F4F173 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AE348E8C2E8EDB0100F4F173 /* Debug */ = {
@@ -293,6 +418,48 @@
 			};
 			name = Release;
 		};
+		AE348EA42E8EDB6E00F4F173 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ADBServiceXPC/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ADBServiceXPC;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rrft.ADBServiceXPC;
+				PRODUCT_NAME = ADBServiceXPC;
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AE348EA52E8EDB6E00F4F173 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ADBServiceXPC/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ADBServiceXPC;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rrft.ADBServiceXPC;
+				PRODUCT_NAME = ADBServiceXPC;
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -310,6 +477,15 @@
 			buildConfigurations = (
 				AE348E8F2E8EDB0100F4F173 /* Debug */,
 				AE348E902E8EDB0100F4F173 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AE348EA32E8EDB6E00F4F173 /* Build configuration list for PBXNativeTarget "AdbXPCService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AE348EA42E8EDB6E00F4F173 /* Debug */,
+				AE348EA52E8EDB6E00F4F173 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
