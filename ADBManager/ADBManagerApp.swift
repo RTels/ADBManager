@@ -10,8 +10,10 @@ import SwiftUI
 @main
 struct ADBManagerApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("ADB Manager"){
             ContentView()
+                .navigationTitle("Android Debug Bridge")
         }
+                .windowResizability(.contentSize)
     }
 }

@@ -5,20 +5,18 @@
 //  Created by rrft on 02/10/25.
 //
 
-//
-//  ContentView.swift
-//  ADBManager
-//
-//  Created by rrft on 02/10/25.
-//
-
 import SwiftUI
 
+// UI: Main view with WhatsApp-style split layout
 struct ContentView: View {
+    // STATE: Observable service - changes trigger UI updates (research: @StateObject vs @ObservedObject)
     @StateObject private var adbService = ADBService()
+    
+    // STATE: Currently selected device in sidebar (research: @State for view-local data)
     @State private var selectedDevice: AndroidDevice?
     
     var body: some View {
+        // LAYOUT: Sidebar + Detail pattern (research: NavigationSplitView)
         NavigationSplitView {
             sidebarView
         } detail: {
@@ -26,9 +24,10 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
+            // LIFECYCLE: Execute on view appearance
             Task {
                 await adbService.refreshDevices()
-                adbService.startMonitoring()
+                adbService.startMonitoring()  // Auto-start polling
             }
         }
     }
@@ -41,6 +40,7 @@ struct ContentView: View {
             
             Divider()
             
+            // CONDITIONAL: Show loading, empty, or device list
             if adbService.isLoading {
                 ProgressView("Searching...")
                     .padding()
@@ -52,8 +52,6 @@ struct ContentView: View {
             }
             
             Divider()
-            
-            sidebarFooter
         }
         .frame(minWidth: 250, idealWidth: 300)
     }
@@ -69,15 +67,7 @@ struct ContentView: View {
             }
             
             if adbService.isMonitoring {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 6, height: 6)
-                    Text("Monitoring")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
+                MonitoringIndicator()  // Animated pulse indicator
             }
         }
         .padding()
@@ -85,9 +75,10 @@ struct ContentView: View {
     }
     
     private var deviceList: some View {
+        // BINDING: Two-way binding for selection (research: $ prefix)
         List(adbService.devices, selection: $selectedDevice) { device in
             DeviceListItem(device: device)
-                .tag(device)
+                .tag(device)  // SELECTION: Enable item selection
         }
         .listStyle(.sidebar)
     }
@@ -104,44 +95,19 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
-    private var sidebarFooter: some View {
-        HStack {
-            Text("\(adbService.devices.count)")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Button(action: {
-                if adbService.isMonitoring {
-                    adbService.stopMonitoring()
-                } else {
-                    adbService.startMonitoring()
-                }
-            }) {
-                Image(systemName: adbService.isMonitoring ? "stop.circle" : "play.circle")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .help(adbService.isMonitoring ? "Stop Monitoring" : "Start Monitoring")
-        }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-    }
-    
     // MARK: - Detail View
     
     private var detailView: some View {
         Group {
             if let device = selectedDevice {
-                DeviceDetailView(adbService: adbService, deviceId: device.id)  // ← Pass ID instead
+                // REACTIVE: Pass deviceId to observe changes in devices array
+                DeviceDetailView(adbService: adbService, deviceId: device.id)
             } else {
                 placeholderView
             }
         }
         .frame(minWidth: 400)
     }
-
     
     private var placeholderView: some View {
         VStack(spacing: 16) {
@@ -164,6 +130,7 @@ struct ContentView: View {
 
 // MARK: - Device List Item (Sidebar)
 
+// UI: Compact device row for sidebar
 struct DeviceListItem: View {
     let device: AndroidDevice
     
@@ -181,7 +148,7 @@ struct DeviceListItem: View {
                         .fill(statusColor)
                         .frame(width: 6, height: 6)
                     
-                    Text(device.state.rawValue.capitalized)
+                    Text(device.state.displayName)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -190,11 +157,11 @@ struct DeviceListItem: View {
             Spacer()
         }
         .padding(.vertical, 8)
-        .contentShape(Rectangle())
+        .contentShape(Rectangle())  // INTERACTION: Entire row is tappable
     }
     
+    // COMPUTED: Prefer model name, fallback to device ID
     private var displayName: String {
-        // Prefer model name, fallback to ID
         if let model = device.model, !model.isEmpty {
             return model
         }
@@ -212,6 +179,7 @@ struct DeviceListItem: View {
         }
     }
     
+    // VISUAL: Color coding by connection state
     private var statusColor: Color {
         switch device.state {
         case .device: return .green
@@ -221,6 +189,7 @@ struct DeviceListItem: View {
         }
     }
     
+    // VISUAL: Icon per connection state
     private var statusIcon: String {
         switch device.state {
         case .device: return "iphone"
@@ -231,15 +200,16 @@ struct DeviceListItem: View {
     }
 }
 
-
 // MARK: - Device Detail View (Right Panel)
 
+// UI: Detailed device information panel
 struct DeviceDetailView: View {
+    // REACTIVE: Observe service to react to device updates (research: @ObservedObject)
     @ObservedObject var adbService: ADBService
-    let deviceId: String  // ← Changed from device to deviceId
+    let deviceId: String
     @State private var isLoadingDetails = false
     
-    // Computed property to get current device from service
+    // COMPUTED: Always get fresh device from array (reactive to changes)
     private var device: AndroidDevice? {
         adbService.devices.first(where: { $0.id == deviceId })
     }
@@ -275,6 +245,7 @@ struct DeviceDetailView: View {
         }
         .background(Color(NSColor.textBackgroundColor))
         .task(id: deviceId) {
+            // LAZY: Fetch details only when device selected AND not already loaded
             if device.model == nil && device.state == .device {
                 isLoadingDetails = true
                 await adbService.fetchDeviceDetails(for: device)
@@ -304,7 +275,7 @@ struct DeviceDetailView: View {
                     .fill(statusColor(for: device))
                     .frame(width: 8, height: 8)
                 
-                Text(device.state.rawValue.capitalized)
+                Text(device.state.displayName.capitalized)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -319,8 +290,9 @@ struct DeviceDetailView: View {
                 .font(.headline)
             
             InfoRow(label: "Device ID", value: device.id)
-            InfoRow(label: "Status", value: device.state.rawValue.capitalized)
+            InfoRow(label: "Status", value: device.state.displayName.capitalized)
             
+            // CONDITIONAL: Only show if data exists
             if let model = device.model {
                 InfoRow(label: "Model", value: model)
             }
@@ -356,7 +328,7 @@ struct DeviceDetailView: View {
     }
 }
 
-
+// UI: Reusable label-value row
 struct InfoRow: View {
     let label: String
     let value: String
@@ -372,6 +344,34 @@ struct InfoRow: View {
             Text(value)
                 .font(.subheadline)
                 .fontWeight(.medium)
+        }
+    }
+}
+
+// ANIMATION: Pulsing monitoring indicator
+struct MonitoringIndicator: View {
+    @State private var isAnimating = false
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.green)
+                .frame(width: 6, height: 6)
+                .opacity(isAnimating ? 0.3 : 1.0)  // Pulse between 30% and 100%
+                .animation(
+                    .easeInOut(duration: 1.0)
+                    .repeatForever(autoreverses: true),
+                    value: isAnimating
+                )
+                .onAppear {
+                    isAnimating = true  // Trigger animation
+                }
+            
+            Text("Monitoring")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            
+            Spacer()
         }
     }
 }

@@ -7,38 +7,58 @@
 
 import Foundation
 
+// THREAD: All properties/methods run on main thread (UI-safe)
 @MainActor
 class ADBService: ObservableObject {
     
+    // REACTIVE: Changes auto-update SwiftUI views
     @Published var devices: [AndroidDevice] = []
     @Published var isLoading = false
     @Published var error: String?
     @Published var isMonitoring = false
     
+    // XPC: Bridge to separate process
     private var connection: NSXPCConnection?
+    
+    // POLLING: Background task that runs every 2s
     private var pollingTask: Task<Void, Never>?
     
     init() {
         setupConnection()
     }
     
+    // XPC: Establish connection to worker process
     private func setupConnection() {
+        // TARGET: Match bundle identifier from Info.plist
         let connection = NSXPCConnection(serviceName: "com.rrft.ADBServiceXPC")
+        
+        // CONTRACT: Define allowed operations
         let interface = NSXPCInterface(with: ADBServiceProtocol.self)
+        
+        // SECURITY: Register safe classes for deserialization (research: XPC class allowlist)
         let allowedClasses = NSSet(array: [NSArray.self, AndroidDevice.self]) as! Set<AnyHashable>
-        interface.setClasses(allowedClasses, for: #selector(ADBServiceProtocol.listDevices(completion:)), argumentIndex: 0, ofReply: true)
+        interface.setClasses(
+            allowedClasses,
+            for: #selector(ADBServiceProtocol.listDevices(completion:)),
+            argumentIndex: 0,  // First param of completion handler
+            ofReply: true      // In the reply, not request
+        )
+        
         connection.remoteObjectInterface = interface
-        connection.resume()
+        connection.resume()  // Activate connection
         self.connection = connection
     }
     
+    // POLLING: Start continuous device checking
     func startMonitoring() {
-        pollingTask?.cancel()
+        pollingTask?.cancel()  // Cancel previous if exists
         isMonitoring = true
+        
+        // TASK: Concurrent work (research: Swift Concurrency Task)
         pollingTask = Task {
             while !Task.isCancelled {
-                await refreshDevices(showLoading: false)
-                try? await Task.sleep(for: .seconds(2))
+                await refreshDevices(showLoading: false)  // Silent refresh
+                try? await Task.sleep(for: .seconds(2))   // 2s interval
             }
         }
     }
@@ -48,6 +68,7 @@ class ADBService: ObservableObject {
         isMonitoring = false
     }
     
+    // FETCH: Get current device list from XPC
     func refreshDevices(showLoading: Bool = true) async {
         if showLoading {
             isLoading = true
@@ -60,7 +81,10 @@ class ADBService: ObservableObject {
             return
         }
         
+        // PROXY: Get reference to remote object (in other process)
+        // MEMORY: weak self prevents retain cycle (research: closure capture)
         let service = connection.remoteObjectProxyWithErrorHandler({ [weak self] error in
+            // ACTOR: Jump back to main thread for UI update
             Task { @MainActor in
                 self?.error = error.localizedDescription
                 self?.isLoading = false
@@ -73,23 +97,24 @@ class ADBService: ObservableObject {
             return
         }
         
+        // BRIDGE: Convert callback → async/await (research: withCheckedContinuation)
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             service.listDevices { [weak self] newDevices, error in
                 Task { @MainActor in
                     guard let self = self else {
-                        continuation.resume()
+                        continuation.resume()  // CRITICAL: Always resume
                         return
                     }
                     
                     if let error = error {
                         self.error = error.localizedDescription
                     } else if let newDevices = newDevices {
-                        // Preserve details from existing devices
+                        // PRESERVE: Don't lose fetched details on refresh
                         let updatedDevices = newDevices.map { newDevice -> AndroidDevice in
-                            // Find if we already have this device with details
+                            // MERGE: Copy details from existing device to new one
                             if let existingDevice = self.devices.first(where: { $0.id == newDevice.id }),
                                existingDevice.model != nil {
-                                // Copy details to new device
+                                // TRANSFER: Move fetched data to refreshed device
                                 newDevice.model = existingDevice.model
                                 newDevice.manufacturer = existingDevice.manufacturer
                                 newDevice.androidVersion = existingDevice.androidVersion
@@ -105,73 +130,48 @@ class ADBService: ObservableObject {
                     if showLoading {
                         self.isLoading = false
                     }
-                    continuation.resume()
+                    continuation.resume()  // CRITICAL: Signal completion
                 }
             }
         }
     }
-
     
-
+    // DETAIL: Fetch expensive device info on-demand
     func fetchDeviceDetails(for device: AndroidDevice) async {
-        print("📡 ADBService: Starting fetch for device \(device.id)")
-        
         guard let connection = connection else {
-            print("❌ ADBService: No connection!")
             return
         }
         
-        print("📡 ADBService: Getting service proxy...")
         let service = connection.remoteObjectProxyWithErrorHandler({ error in
-            print("❌ ADBService: Proxy error: \(error)")
         }) as? ADBServiceProtocol
         
         guard let service = service else {
-            print("❌ ADBService: Could not cast to protocol!")
             return
         }
         
-        print("📡 ADBService: Calling getDeviceDetails via XPC...")
-        
+        // BRIDGE: Callback → async/await pattern
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             service.getDeviceDetails(deviceId: device.id) { [weak self] detailedDevice, error in
-                print("📡 ADBService: Got XPC response")
-                
-                if let error = error {
-                    print("❌ ADBService: Error from XPC: \(error)")
-                }
                 
                 if let detailedDevice = detailedDevice {
-                    print("✅ ADBService: Got detailed device!")
-                    print("   - Model: \(detailedDevice.model ?? "nil")")
-                    print("   - Manufacturer: \(detailedDevice.manufacturer ?? "nil")")
-                    print("   - Android: \(detailedDevice.androidVersion ?? "nil")")
-                    
+                    // ACTOR: Return to main thread for array mutation
                     Task { @MainActor in
+                        // UPDATE: Replace device in array with detailed version
                         if let index = self?.devices.firstIndex(where: { $0.id == device.id }) {
-                            print("✅ ADBService: Updating device at index \(index)")
                             self?.devices[index] = detailedDevice
-                        } else {
-                            print("❌ ADBService: Could not find device in array!")
                         }
-                        continuation.resume()
+                        continuation.resume()  // CRITICAL: Always resume
                     }
                 } else {
-                    print("❌ ADBService: detailedDevice is nil!")
-                    continuation.resume()
+                    continuation.resume()  // CRITICAL: Resume even on failure
                 }
             }
         }
-        
-        print("📡 ADBService: fetchDeviceDetails completed")
     }
-
-
-
     
+    // CLEANUP: Cancel ongoing work when service is destroyed
     deinit {
         pollingTask?.cancel()
         connection?.invalidate()
     }
 }
-
