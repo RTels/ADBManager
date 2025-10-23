@@ -1,29 +1,47 @@
 //
-//  adbXPCService.swift
+//  ADBXPCService.swift
 //  ADBServiceXPC
 //
 //  Created by rrft on 02/10/25.
 //
 
 import Foundation
+import XPCLibrary
 
-// XPC: Implementation of protocol contract (runs in separate process)
-class adbXPCService: NSObject, ADBServiceProtocol {
+class ADBXPCService: NSObject, ADBServiceProtocol {
     
-    // PROTOCOL: List all connected devices
-    func listDevices(completion: @escaping ([AndroidDevice]?, Error?) -> Void) {
-        Task {
-            do {
-                let devices = try await performListDevices()
-                completion(devices, nil)  // Success
-            } catch {
-                completion(nil, error)  // Failure
+    private var cachedDevices: [Device] = []
+    private var pollingTask: Task<Void, Never>?
+    private let cacheLock = NSLock()
+    
+    func startMonitoring() {
+        pollingTask?.cancel()
+        
+        pollingTask = Task {
+            while !Task.isCancelled {
+                if let devices = try? await performListDevices() {
+                    updateCache(devices)
+                } else {
+                    print("XPC: Failed to fetch device list")
+                }
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
     
-    // PROTOCOL: Get detailed info for specific device
-    func getDeviceDetails(deviceId: String, completion: @escaping (AndroidDevice?, Error?) -> Void) {
+    func stopMonitoring() {
+        pollingTask?.cancel()
+        pollingTask = nil
+    }
+    
+    // return cached device list (instant)
+    func listDevices(completion: @escaping ([Device]?, Error?) -> Void) {
+        let devices = getCache()
+        completion(devices, nil)
+    }
+    
+    // get detailed info for specific device (on-demand)
+    func getDeviceDetails(deviceId: String, completion: @escaping (Device?, Error?) -> Void) {
         Task {
             do {
                 let device = try await fetchDeviceDetails(deviceId: deviceId)
@@ -34,51 +52,61 @@ class adbXPCService: NSObject, ADBServiceProtocol {
         }
     }
     
-    // EXEC: Run 'adb devices' command
-    private func performListDevices() async throws -> [AndroidDevice] {
-        // BUNDLE: Get bundled adb executable path
+    private func performListDevices() async throws -> [Device] {
         guard let adbPath = Bundle.main.path(forResource: "adb", ofType: nil) else {
             throw ADBError.adbNotFound
         }
-        
-        // PROCESS: Spawn separate process for adb command (research: Foundation.Process)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: adbPath)
         process.arguments = ["devices"]
         
-        // PIPE: Capture command output (research: Foundation.Pipe)
         let pipe = Pipe()
         process.standardOutput = pipe
         
         try process.run()
-        process.waitUntilExit()  // Block until command completes
+        process.waitUntilExit()
         
-        // READ: Extract output from pipe
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else {
             throw ADBError.invalidOutput
         }
         
-        return parseADBOutput(output)
+        let basicDevices = parseADBOutput(output)
+        var detailedDevices: [Device] = []
+        
+        for device in basicDevices {
+            if device.state == .device {
+                do {
+                    let detailed = try await fetchDeviceDetails(deviceId: device.id)
+                    detailedDevices.append(detailed)
+                } catch {
+                    print("XPC: Failed to fetch details for \(device.id): \(error)")
+                    detailedDevices.append(device)
+                }
+            } else {
+                detailedDevices.append(device)
+            }
+        }
+        
+        return detailedDevices
     }
     
-    // DETAIL: Execute multiple ADB commands to gather device info
-    private func fetchDeviceDetails(deviceId: String) async throws -> AndroidDevice {
+    // fetch all properties for a specific device
+    private func fetchDeviceDetails(deviceId: String) async throws -> Device {
         guard let adbPath = Bundle.main.path(forResource: "adb", ofType: nil) else {
             throw ADBError.adbNotFound
         }
         
-        let device = AndroidDevice(id: deviceId, stateString: "device")
+        let device = Device(id: deviceId, stateString: "device")
         
-        // PROPERTY: Fetch device model (e.g., "Pixel 7", "Mi A2")
         device.model = try? await runADBCommand(
             adbPath: adbPath,
             deviceId: deviceId,
             command: "shell",
             args: ["getprop", "ro.product.model"]
         )
-        
-        // PROPERTY: Fetch manufacturer (e.g., "Google", "Xiaomi")
+    
         device.manufacturer = try? await runADBCommand(
             adbPath: adbPath,
             deviceId: deviceId,
@@ -86,7 +114,6 @@ class adbXPCService: NSObject, ADBServiceProtocol {
             args: ["getprop", "ro.product.manufacturer"]
         )
         
-        // PROPERTY: Fetch Android version (e.g., "14", "10")
         device.androidVersion = try? await runADBCommand(
             adbPath: adbPath,
             deviceId: deviceId,
@@ -94,7 +121,6 @@ class adbXPCService: NSObject, ADBServiceProtocol {
             args: ["getprop", "ro.build.version.release"]
         )
         
-        // PROPERTY: Fetch API level (e.g., "34", "29")
         device.apiLevel = try? await runADBCommand(
             adbPath: adbPath,
             deviceId: deviceId,
@@ -102,7 +128,6 @@ class adbXPCService: NSObject, ADBServiceProtocol {
             args: ["getprop", "ro.build.version.sdk"]
         )
         
-        // BATTERY: Parse battery level from dumpsys output
         if let batteryOutput = try? await runADBCommand(
             adbPath: adbPath,
             deviceId: deviceId,
@@ -115,11 +140,10 @@ class adbXPCService: NSObject, ADBServiceProtocol {
         return device
     }
     
-    // EXEC: Run single ADB command targeting specific device
+    // run single ADB command
     private func runADBCommand(adbPath: String, deviceId: String, command: String, args: [String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: adbPath)
-        // TARGET: -s flag targets specific device by serial number
         process.arguments = ["-s", deviceId, command] + args
         
         let pipe = Pipe()
@@ -136,7 +160,7 @@ class adbXPCService: NSObject, ADBServiceProtocol {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
-    // PARSE: Extract battery percentage from dumpsys output
+    // extract battery percentage from dumpsys output
     private func parseBatteryLevel(from output: String) -> String? {
         let lines = output.components(separatedBy: .newlines)
         for line in lines {
@@ -150,18 +174,16 @@ class adbXPCService: NSObject, ADBServiceProtocol {
         return nil
     }
     
-    // PARSE: Convert 'adb devices' output to AndroidDevice objects
-    private func parseADBOutput(_ output: String) -> [AndroidDevice] {
+    // convert 'adb devices' output to Device objects
+    private func parseADBOutput(_ output: String) -> [Device] {
         output
             .components(separatedBy: .newlines)
-            .compactMap { line -> AndroidDevice? in
-                // FILTER: Skip header and empty lines
+            .compactMap { line -> Device? in
                 guard !line.isEmpty,
                       !line.contains("List of devices") else {
                     return nil
                 }
                 
-                // SPLIT: Line format is "deviceId\tstate"
                 let components = line.components(separatedBy: .whitespaces)
                     .filter { !$0.isEmpty }
                 
@@ -169,9 +191,23 @@ class adbXPCService: NSObject, ADBServiceProtocol {
                     return nil
                 }
                 
-                // BUILD: Create device from parsed components
-                return AndroidDevice(id: components[0], stateString: components[1])
+                return Device(id: components[0], stateString: components[1])
             }
+    }
+    
+    // CACHE: Thread-safe write
+    private func updateCache(_ devices: [Device]) {
+        cacheLock.lock()
+        cachedDevices = devices
+        cacheLock.unlock()
+    }
+    
+    // CACHE: Thread-safe read
+    private func getCache() -> [Device] {
+        cacheLock.lock()
+        let devices = cachedDevices
+        cacheLock.unlock()
+        return devices
     }
 }
 

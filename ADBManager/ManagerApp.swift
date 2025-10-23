@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct ADBManagerApp: App {
+struct ManagerApp: App {
     var body: some Scene {
         WindowGroup("ADB Manager"){
             ContentView()

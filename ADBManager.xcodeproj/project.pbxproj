@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		AE348EA12E8EDB6E00F4F173 /* ADBServiceXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AE8DB1822EA9755F00185AA7 /* XPCLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = AE8DB1812EA9755F00185AA7 /* XPCLibrary */; };
+		AE8DB1842EA9758600185AA7 /* XPCLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = AE8DB1832EA9758600185AA7 /* XPCLibrary */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,16 +46,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ADBService.swift,
-				AndroidDevice.swift,
 			);
 			target = AE348E942E8EDB6E00F4F173 /* AdbXPCService */;
-		};
-		AE348EC02E8F03B600F4F173 /* Exceptions for "ADBServiceXPC" folder in "ADBManager" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ADBServiceProtocol.swift,
-			);
-			target = AE348E812E8EDAFE00F4F173 /* ADBManager */;
 		};
 		AE8A4E1C2E904E7200DFAF31 /* Exceptions for "ADBServiceXPC" folder in "AdbXPCService" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -76,7 +70,6 @@
 		AE348E962E8EDB6E00F4F173 /* ADBServiceXPC */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				AE348EC02E8F03B600F4F173 /* Exceptions for "ADBServiceXPC" folder in "ADBManager" target */,
 				AE8A4E1C2E904E7200DFAF31 /* Exceptions for "ADBServiceXPC" folder in "AdbXPCService" target */,
 			);
 			path = ADBServiceXPC;
@@ -89,6 +82,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE8DB1822EA9755F00185AA7 /* XPCLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -96,6 +90,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE8DB1842EA9758600185AA7 /* XPCLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,6 +102,7 @@
 			children = (
 				AE348E842E8EDAFE00F4F173 /* ADBManager */,
 				AE348E962E8EDB6E00F4F173 /* ADBServiceXPC */,
+				AE8DB1802EA9755F00185AA7 /* Frameworks */,
 				AE348E832E8EDAFE00F4F173 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -118,6 +114,13 @@
 				AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		AE8DB1802EA9755F00185AA7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -142,6 +145,7 @@
 			);
 			name = ADBManager;
 			packageProductDependencies = (
+				AE8DB1812EA9755F00185AA7 /* XPCLibrary */,
 			);
 			productName = ADBManager;
 			productReference = AE348E822E8EDAFE00F4F173 /* ADBManager.app */;
@@ -164,6 +168,7 @@
 			);
 			name = AdbXPCService;
 			packageProductDependencies = (
+				AE8DB1832EA9758600185AA7 /* XPCLibrary */,
 			);
 			productName = adbXPCService;
 			productReference = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */;
@@ -196,6 +201,9 @@
 			);
 			mainGroup = AE348E792E8EDAFE00F4F173;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AE348E832E8EDAFE00F4F173 /* Products */;
 			projectDirPath = "";
@@ -491,6 +499,26 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = XPCLibrary;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AE8DB1812EA9755F00185AA7 /* XPCLibrary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */;
+			productName = XPCLibrary;
+		};
+		AE8DB1832EA9758600185AA7 /* XPCLibrary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */;
+			productName = XPCLibrary;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AE348E7A2E8EDAFE00F4F173 /* Project object */;
 }
