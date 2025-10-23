@@ -10,36 +10,30 @@ import Foundation
 @objc(AndroidDevice)
 public class Device: NSObject, NSSecureCoding, Identifiable {
     
-    // always present from initial ADB scan
     public let id: String
     public let state: DeviceState
     
-    // fetched on-demand when user clicks device
     public var model: String?
     public var manufacturer: String?
     public var androidVersion: String?
     public var batteryLevel: String?
     public var apiLevel: String?
     
-    // BASIC: Creates device from ADB output line
+
     public init(id: String, stateString: String) {
         self.id = id
         self.state = DeviceState(rawValue: stateString) ?? .unknown
         super.init()
     }
     
-    // UI: Fallback display before details load
     public var displayName: String {
         let stateText = state == .device ? "Connected" : state.rawValue.capitalized
         return "\(id) - \(stateText)"
     }
     
-    // MARK: - NSSecureCoding
     
-    // SECURITY: Required for XPC
     public static var supportsSecureCoding: Bool { true }
     
-    // DESERIALIZE: Receives data from XPC
     public required init?(coder: NSCoder) {
         guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
               let stateRaw = coder.decodeObject(of: NSString.self, forKey: "state") as String? else {
@@ -56,7 +50,7 @@ public class Device: NSObject, NSSecureCoding, Identifiable {
         super.init()
     }
     
-    // SERIALIZE: Converts object → data for XPC
+    // converts object → data for XPC
     public func encode(with coder: NSCoder) {
         coder.encode(id as NSString, forKey: "id")
         coder.encode(state.rawValue as NSString, forKey: "state")
@@ -69,7 +63,6 @@ public class Device: NSObject, NSSecureCoding, Identifiable {
     }
 }
 
-// ENUM: Must be public with public cases!
 @objc public enum DeviceState: Int, RawRepresentable {
     case device
     case offline
