@@ -8,7 +8,6 @@
 import Foundation
 import XPCLibrary
 
-// ERRORS: Service-specific errors
 enum ADBServiceError: LocalizedError {
     case noConnection
     case serviceUnavailable
@@ -35,12 +34,15 @@ class ADBService: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var isMonitoring = false
+    @Published var isSyncing = false
+    @Published var syncProgress: String?
     
-    // XPC: Bridge to separate process
+    
+    
     private var connection: NSXPCConnection?
-    
-    // POLLING: Background task for UI updates
     private var pollingTask: Task<Void, Never>?
+    private var syncProgressTask: Task<Void, Never>?
+    private var syncProgressCurrent = 0
     
     init() {
         setupConnection()
@@ -135,6 +137,132 @@ class ADBService: ObservableObject {
         }
     }
     
+    // SYNC: Sync photos from device to Mac folder
+    func syncPhotos(
+        for device: Device,
+        from sourcePath: String,
+        to destinationPath: String
+    ) async -> Int? {
+        isSyncing = true
+        syncProgress = "Starting sync..."
+        error = nil
+        
+        stopMonitoring()  // Stop monitoring during sync
+        startSyncProgressPolling()
+        
+        do {
+            let count = try await syncPhotosInternal(
+                deviceId: device.id,
+                sourcePath: sourcePath,
+                destinationPath: destinationPath
+            )
+            syncProgress = "Sync complete!"
+            
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                await MainActor.run {
+                    if syncProgress == "Sync complete!" {
+                        syncProgress = nil
+                    }
+                }
+            }
+            
+            stopSyncProgressPolling()
+            isSyncing = false
+            startMonitoring()  // Restart monitoring on success
+            return count
+            
+        } catch {
+            // Get partial count if available
+            let partialCount = syncProgressCurrent
+            
+            // Show detailed error with partial progress
+            if partialCount > 0 {
+                self.error = "\(error.localizedDescription)\n\nPartial sync: \(partialCount) photos were successfully copied before disconnection."
+            } else {
+                self.error = error.localizedDescription
+            }
+            
+            syncProgress = nil
+            stopSyncProgressPolling()
+            isSyncing = false
+            
+            // DON'T restart monitoring on error
+            // Let user dismiss error to trigger refresh
+            
+            return partialCount > 0 ? partialCount : nil
+        }
+    }
+
+
+
+
+    
+    
+    
+    // BROWSE: List folders on device
+    func listFolders(for device: Device, at path: String) async throws -> [String] {
+        guard let service = getServiceWithErrorHandler() else {
+            throw ADBServiceError.serviceUnavailable
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            service.listFolders(
+                deviceId: device.id,
+                path: path,
+                completion: { folders, error in
+                    Task { @MainActor in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let folders = folders {
+                            continuation.resume(returning: folders)
+                        } else {
+                            continuation.resume(throwing: ADBServiceError.xpcError("No folders returned"))
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+
+    
+    // WRAPPER: Convert XPC callback to async/await
+    private func syncPhotosInternal(
+        deviceId: String,
+        sourcePath: String,
+        destinationPath: String
+    ) async throws -> Int {
+        guard let service = getServiceWithErrorHandler() else {
+            throw ADBServiceError.serviceUnavailable
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            service.startPhotoSync(
+                deviceId: deviceId,
+                sourcePath: sourcePath,
+                destinationPath: destinationPath,
+                completion: { (count: NSNumber?, error: Error?) in
+                    Task { @MainActor in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let count = count {
+                            continuation.resume(returning: count.intValue)  // ← Convert to Int
+                        } else {
+                            continuation.resume(throwing: ADBServiceError.xpcError("No count returned"))
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+
+
+
+
+
+    
     // MARK: - Private Async Wrappers (Hide Callbacks)
     
     // WRAPPER: Convert callback-based listDevices to async/await
@@ -195,6 +323,38 @@ class ADBService: ObservableObject {
         
         return service
     }
+    
+    private func startSyncProgressPolling() {
+        syncProgressTask?.cancel()
+        
+        syncProgressTask = Task {
+            while !Task.isCancelled {
+                await updateSyncProgress()
+                try? await Task.sleep(for: .milliseconds(500))  // Poll every 0.5s
+            }
+        }
+    }
+
+    private func stopSyncProgressPolling() {
+        syncProgressTask?.cancel()
+        syncProgressTask = nil
+    }
+
+    private func updateSyncProgress() async {
+        guard let service = getService() else { return }
+        
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            service.getPhotoSyncProgress { [weak self] current, total in
+                Task { @MainActor in
+                    if total > 0 {
+                        self?.syncProgress = "Syncing \(current)/\(total) photos..."
+                    }
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     
     // CLEANUP: Cancel tasks and invalidate connection
     deinit {

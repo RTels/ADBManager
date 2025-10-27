@@ -7,6 +7,7 @@
 
 import SwiftUI
 import XPCLibrary
+import AppKit
 
 struct ContentView: View {
     @StateObject private var adbService = ADBService()
@@ -26,8 +27,6 @@ struct ContentView: View {
             }
         }
     }
-    
-    // MARK: - Sidebar
     
     private var sidebarView: some View {
         VStack(spacing: 0) {
@@ -87,12 +86,9 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
-    // MARK: - Detail View
-    
     private var detailView: some View {
         Group {
             if let device = selectedDevice {
-                // FIXED: Pass device ID, not model
                 DeviceDetailView(adbService: adbService, deviceId: device.id)
             } else {
                 placeholderView
@@ -151,12 +147,11 @@ struct DeviceListItem: View {
         .contentShape(Rectangle())
     }
     
-    // FIXED: Show model if available, fallback to ID
     private var displayName: String {
         if let model = device.model, !model.isEmpty {
             return model
         }
-        return device.id  // ← FIXED: was device.model
+        return device.id
     }
     
     private var statusIndicator: some View {
@@ -195,8 +190,12 @@ struct DeviceDetailView: View {
     @ObservedObject var adbService: ADBService
     let deviceId: String
     @State private var isLoadingDetails = false
+    @State private var selectedSourcePath: String? = "/sdcard/DCIM/Camera/"
+    @State private var showFolderBrowser = false
+    @State private var showSuccessAlert = false
+    @State private var syncedPhotoCount = 0
+    @State private var destinationFolder: String?
     
-    // FIXED: Search by ID, not model
     private var device: Device? {
         adbService.devices.first(where: { $0.id == deviceId })
     }
@@ -214,21 +213,33 @@ struct DeviceDetailView: View {
     
     @ViewBuilder
     private func deviceContent(device: Device) -> some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                deviceHeader(device: device)
-                
-                Divider()
-                
-                if isLoadingDetails {
-                    ProgressView("Loading device details...")
-                } else {
-                    deviceInfo(device: device)
+        VStack(spacing: 0) {
+            // ERROR BANNER
+            if let error = adbService.error {
+                ErrorBanner(message: error) {
+                    adbService.error = nil
+                    adbService.startMonitoring()  // ← Restart monitoring when dismissed
                 }
-                
-                Spacer()
             }
-            .padding()
+            
+            ScrollView {
+                VStack(spacing: 24) {
+                    deviceHeader(device: device)
+                    
+                    Divider()
+                    
+                    if isLoadingDetails {
+                        ProgressView("Loading device details...")
+                    } else {
+                        deviceInfo(device: device)
+                    }
+                    
+                    Divider()
+                    photoSyncSection(device: device)
+                    Spacer()
+                }
+                .padding()
+            }
         }
         .background(Color(NSColor.textBackgroundColor))
         .task(id: deviceId) {
@@ -239,6 +250,7 @@ struct DeviceDetailView: View {
             }
         }
     }
+
     
     private func deviceHeader(device: Device) -> some View {
         VStack(spacing: 16) {
@@ -252,7 +264,6 @@ struct DeviceDetailView: View {
                     .foregroundColor(statusColor(for: device))
             }
             
-            // FIXED: Show displayName (handles model/id logic)
             Text(device.displayName)
                 .font(.title)
                 .fontWeight(.semibold)
@@ -276,11 +287,9 @@ struct DeviceDetailView: View {
             Text("Device Information")
                 .font(.headline)
             
-            // FIXED: Show ID (always available)
             InfoRow(label: "Device ID", value: device.id)
             InfoRow(label: "Status", value: device.state.displayName.capitalized)
             
-            // Show optional fields only if they exist
             if let model = device.model {
                 InfoRow(label: "Model", value: model)
             }
@@ -306,6 +315,140 @@ struct DeviceDetailView: View {
         .cornerRadius(8)
     }
     
+    private func photoSyncSection(device: Device) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Photo Sync")
+                .font(.headline)
+            
+            if adbService.isSyncing {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    
+                    if let progress = adbService.syncProgress {
+                        Text(progress)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Source Folder:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    HStack {
+                        Text(selectedSourcePath ?? "/sdcard/DCIM/Camera/")
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(NSColor.textBackgroundColor))
+                            .cornerRadius(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            )
+                        
+                        Button(action: {
+                            showFolderBrowser = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder")
+                                Text("Browse...")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                
+                Divider()
+                    .padding(.vertical, 4)
+                
+                Button(action: {
+                    Task {
+                        await handleSyncPhotos(for: device)
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "photo.on.rectangle.angled")
+                        Text("Sync Photos to Mac")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(device.state != .device)
+                
+                Text("Syncs all photos from selected folder")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+        .sheet(isPresented: $showFolderBrowser) {
+            FolderBrowserView(
+                adbService: adbService,
+                device: device,
+                selectedPath: $selectedSourcePath
+            )
+        }
+        .alert("Sync Complete!", isPresented: $showSuccessAlert) {
+            Button("Open Folder") {
+                if let folder = destinationFolder {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: folder))
+                }
+            }
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Successfully synced \(syncedPhotoCount) photo\(syncedPhotoCount == 1 ? "" : "s")!")
+        }
+    }
+    
+    private func handleSyncPhotos(for device: Device) async {
+        guard let sourcePath = selectedSourcePath else {
+            adbService.error = "Please select a source folder"
+            return
+        }
+        
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose destination folder for photos"
+        panel.prompt = "Select Folder"
+        
+        let picturesPath = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+        panel.directoryURL = picturesPath
+        
+        let response = await panel.begin()
+        
+        guard response == .OK, let url = panel.url else {
+            print("User cancelled folder selection")
+            return
+        }
+        
+        if let count = await adbService.syncPhotos(
+            for: device,
+            from: sourcePath,
+            to: url.path
+        ) {
+            if count > 0 {
+                syncedPhotoCount = count
+                destinationFolder = url.path
+                showSuccessAlert = true
+            } else {
+                adbService.error = "All photos already exist in destination folder. Nothing to sync."
+            }
+        }
+    }
+    
     private func statusColor(for device: Device) -> Color {
         switch device.state {
         case .device: return .green
@@ -315,6 +458,7 @@ struct DeviceDetailView: View {
         }
     }
 }
+
 
 // MARK: - Info Row
 
@@ -363,6 +507,202 @@ struct MonitoringIndicator: View {
             
             Spacer()
         }
+    }
+}
+
+// MARK: - Error Banner
+
+struct ErrorBanner: View {
+    let message: String
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            Spacer()
+            
+            Button(action: onDismiss) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding()
+        .background(Color.orange.opacity(0.15))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.orange.opacity(0.5), lineWidth: 1)
+        )
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Folder Browser
+
+struct FolderBrowserView: View {
+    @ObservedObject var adbService: ADBService
+    let device: Device
+    @Binding var selectedPath: String?
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var currentPath: String = "/sdcard/"
+    @State private var folders: [String] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var pathHistory: [String] = ["/sdcard/"]
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Browse Device Folders")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            
+            Divider()
+            
+            HStack {
+                Button(action: goBack) {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(pathHistory.count <= 1)
+                
+                Text(currentPath)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                }
+            }
+            .padding()
+            
+            Divider()
+            
+            if let error = errorMessage {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 36))
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(folders, id: \.self) { folder in
+                            FolderRow(folderName: folder) {
+                                navigateInto(folder: folder)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Divider()
+            
+            HStack {
+                Text("Selected: \(currentPath)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button("Select This Folder") {
+                    selectedPath = currentPath
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+        }
+        .frame(width: 500, height: 400)
+        .task {
+            await loadFolders()
+        }
+    }
+    
+    private func loadFolders() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            folders = try await adbService.listFolders(for: device, at: currentPath)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        
+        isLoading = false
+    }
+    
+    private func navigateInto(folder: String) {
+        var newPath = (currentPath as NSString).appendingPathComponent(folder)
+        if !newPath.hasSuffix("/") {
+            newPath += "/"
+        }
+        
+        pathHistory.append(currentPath)
+        currentPath = newPath
+        
+        Task {
+            await loadFolders()
+        }
+    }
+    
+    private func goBack() {
+        guard pathHistory.count > 1 else { return }
+        currentPath = pathHistory.removeLast()
+        
+        Task {
+            await loadFolders()
+        }
+    }
+}
+
+// MARK: - Folder Row
+
+struct FolderRow: View {
+    let folderName: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: "folder.fill")
+                    .foregroundColor(.blue)
+                Text(folderName)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
     }
 }
 

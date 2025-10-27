@@ -15,9 +15,8 @@ listener.resume()
 
 extension ADBXPCService: NSXPCListenerDelegate {
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
-        let interface = NSXPCInterface(with: ADBServiceProtocol.self)
         
-        // Register allowed classes for decoding
+        let interface = NSXPCInterface(with: ADBServiceProtocol.self)
         let allowedClasses = NSSet(array: [NSArray.self, Device.self]) as! Set<AnyHashable>
         interface.setClasses(allowedClasses, for: #selector(ADBServiceProtocol.listDevices(completion:)), argumentIndex: 0, ofReply: true)
         

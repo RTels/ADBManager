@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		AE348EA12E8EDB6E00F4F173 /* ADBServiceXPC.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AE7DBD5E2EAA9958001A524C /* XPCLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = AE7DBD5D2EAA9958001A524C /* XPCLibrary */; };
 		AE8DB1822EA9755F00185AA7 /* XPCLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = AE8DB1812EA9755F00185AA7 /* XPCLibrary */; };
-		AE8DB1842EA9758600185AA7 /* XPCLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = AE8DB1832EA9758600185AA7 /* XPCLibrary */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,7 +90,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AE8DB1842EA9758600185AA7 /* XPCLibrary in Frameworks */,
+				AE7DBD5E2EAA9958001A524C /* XPCLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,7 +168,7 @@
 			);
 			name = AdbXPCService;
 			packageProductDependencies = (
-				AE8DB1832EA9758600185AA7 /* XPCLibrary */,
+				AE7DBD5D2EAA9958001A524C /* XPCLibrary */,
 			);
 			productName = adbXPCService;
 			productReference = AE348E952E8EDB6E00F4F173 /* ADBServiceXPC.xpc */;
@@ -508,12 +508,12 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AE8DB1812EA9755F00185AA7 /* XPCLibrary */ = {
+		AE7DBD5D2EAA9958001A524C /* XPCLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */;
 			productName = XPCLibrary;
 		};
-		AE8DB1832EA9758600185AA7 /* XPCLibrary */ = {
+		AE8DB1812EA9755F00185AA7 /* XPCLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AE8DB17F2EA971BF00185AA7 /* XCLocalSwiftPackageReference "XPCLibrary" */;
 			productName = XPCLibrary;
