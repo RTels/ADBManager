@@ -195,50 +195,96 @@ struct DeviceDetailView: View {
     @State private var showSuccessAlert = false
     @State private var syncedPhotoCount = 0
     @State private var destinationFolder: String?
+    @State private var lastKnownDevice: Device?  // ← NEW: Keep snapshot
     
     private var device: Device? {
-        adbService.devices.first(where: { $0.id == deviceId })
+        // If reconnecting, use last known device
+        if adbService.needsReconnection, let last = lastKnownDevice {
+            return last
+        }
+        // Otherwise, get current device from list
+        return adbService.devices.first(where: { $0.id == deviceId })
     }
     
     var body: some View {
         Group {
             if let device = device {
                 deviceContent(device: device)
+                    .onChange(of: device) {
+                        // Store snapshot when device changes
+                        if !adbService.needsReconnection {
+                            lastKnownDevice = device
+                        }
+                    }
             } else {
                 Text("Device not found")
                     .foregroundColor(.secondary)
+            }
+        }
+        .onAppear {
+            // Store initial device
+            if let currentDevice = adbService.devices.first(where: { $0.id == deviceId }) {
+                lastKnownDevice = currentDevice
             }
         }
     }
     
     @ViewBuilder
     private func deviceContent(device: Device) -> some View {
-        VStack(spacing: 0) {
-            // ERROR BANNER
-            if let error = adbService.error {
-                ErrorBanner(message: error) {
-                    adbService.error = nil
-                    adbService.startMonitoring()  // ← Restart monitoring when dismissed
+        ZStack {
+            // Main content
+            VStack(spacing: 0) {
+                // Normal error banner (for non-reconnection errors)
+                if let error = adbService.error, !adbService.needsReconnection {
+                    ErrorBanner(message: error) {
+                        adbService.error = nil
+                    }
+                }
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        deviceHeader(device: device)
+                        Divider()
+                        
+                        if isLoadingDetails {
+                            ProgressView("Loading device details...")
+                        } else {
+                            deviceInfo(device: device)
+                        }
+                        
+                        Divider()
+                        photoSyncSection(device: device)
+                        Spacer()
+                    }
+                    .padding()
                 }
             }
+            .disabled(adbService.needsReconnection)  // Grey out when reconnecting
+            .blur(radius: adbService.needsReconnection ? 3 : 0)
             
-            ScrollView {
-                VStack(spacing: 24) {
-                    deviceHeader(device: device)
-                    
-                    Divider()
-                    
-                    if isLoadingDetails {
-                        ProgressView("Loading device details...")
-                    } else {
-                        deviceInfo(device: device)
+            // Reconnection panel overlay
+            if adbService.needsReconnection {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                
+                ReconnectionPanel(
+                    adbService: adbService,
+                    device: device,
+                    sourcePath: selectedSourcePath ?? "/sdcard/DCIM/Camera/",
+                    destinationPath: destinationFolder ?? ""
+                ) {
+                    // Resume action
+                    if let count = await adbService.resumeSync(
+                        for: device,
+                        from: selectedSourcePath ?? "/sdcard/DCIM/Camera/",
+                        to: destinationFolder ?? ""
+                    ) {
+                        if count > 0 && !adbService.needsReconnection {
+                            syncedPhotoCount = count
+                            showSuccessAlert = true
+                        }
                     }
-                    
-                    Divider()
-                    photoSyncSection(device: device)
-                    Spacer()
                 }
-                .padding()
             }
         }
         .background(Color(NSColor.textBackgroundColor))
@@ -250,6 +296,7 @@ struct DeviceDetailView: View {
             }
         }
     }
+
 
     
     private func deviceHeader(device: Device) -> some View {
@@ -416,6 +463,9 @@ struct DeviceDetailView: View {
             return
         }
         
+        showSuccessAlert = false
+        syncedPhotoCount = 0
+        
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -434,20 +484,24 @@ struct DeviceDetailView: View {
             return
         }
         
+        // Store destination for resume
+        destinationFolder = url.path
+        
         if let count = await adbService.syncPhotos(
             for: device,
             from: sourcePath,
             to: url.path
         ) {
-            if count > 0 {
+            // Only show success if NOT in reconnection state
+            if count > 0 && !adbService.needsReconnection {  // ← Add this check
                 syncedPhotoCount = count
-                destinationFolder = url.path
                 showSuccessAlert = true
-            } else {
+            } else if count == 0 {
                 adbService.error = "All photos already exist in destination folder. Nothing to sync."
             }
         }
     }
+
     
     private func statusColor(for device: Device) -> Color {
         switch device.state {

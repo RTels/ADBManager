@@ -37,6 +37,15 @@ class ADBService: ObservableObject {
     @Published var isSyncing = false
     @Published var syncProgress: String?
     
+    // reconnection state
+    @Published var needsReconnection = false
+    @Published var isReconnecting = false
+    @Published var deviceReconnected = false
+    @Published var partialSyncCount: Int?
+    @Published var disconnectedDeviceId: String?
+    @Published var deviceConfirmedGone = false
+
+    
     
     
     private var connection: NSXPCConnection?
@@ -107,20 +116,38 @@ class ADBService: ObservableObject {
         if showLoading {
             isLoading = true
         }
-        error = nil
         
         do {
-            // Pure async/await call
             let fetchedDevices = try await listDevices()
             self.devices = fetchedDevices
+            
+            // Check if we're waiting for reconnection
+            if isReconnecting, let deviceId = disconnectedDeviceId {
+                let deviceExists = fetchedDevices.contains(where: { $0.id == deviceId && $0.state == .device })
+                
+                if !deviceExists {
+                    // Device is confirmed gone
+                    deviceConfirmedGone = true
+                } else if deviceConfirmedGone && deviceExists {
+                    // Device came back AFTER being confirmed gone
+                    deviceReconnected = true
+                    isReconnecting = false
+                }
+            }
+            
         } catch {
-            self.error = error.localizedDescription
+            if !needsReconnection {
+                self.error = error.localizedDescription
+            }
         }
         
         if showLoading {
             isLoading = false
         }
     }
+
+
+    
     
     // DETAIL: Fetch device info on-demand
     func fetchDeviceDetails(for device: Device) async {
@@ -176,29 +203,36 @@ class ADBService: ObservableObject {
             // Get partial count if available
             let partialCount = syncProgressCurrent
             
-            // Show detailed error with partial progress
-            if partialCount > 0 {
-                self.error = "\(error.localizedDescription)\n\nPartial sync: \(partialCount) photos were successfully copied before disconnection."
-            } else {
-                self.error = error.localizedDescription
-            }
-            
             syncProgress = nil
             stopSyncProgressPolling()
             isSyncing = false
             
-            // DON'T restart monitoring on error
-            // Let user dismiss error to trigger refresh
+            // Set reconnection state
+            needsReconnection = true
+            isReconnecting = true
+            deviceConfirmedGone = false
+            partialSyncCount = partialCount > 0 ? partialCount : nil
+            disconnectedDeviceId = device.id
+            self.error = error.localizedDescription
+            
+            // Start monitoring to detect reconnection
+            startMonitoring()
             
             return partialCount > 0 ? partialCount : nil
         }
     }
-
-
-
-
     
-    
+    // RESUME: Resume sync after reconnection
+    func resumeSync(for device: Device, from sourcePath: String, to destinationPath: String) async -> Int? {
+        // Reset reconnection state
+        needsReconnection = false
+        isReconnecting = false
+        deviceReconnected = false
+        disconnectedDeviceId = nil
+        
+        // Start sync again (will skip existing files)
+        return await syncPhotos(for: device, from: sourcePath, to: destinationPath)
+    }
     
     // BROWSE: List folders on device
     func listFolders(for device: Device, at path: String) async throws -> [String] {
@@ -224,8 +258,9 @@ class ADBService: ObservableObject {
             )
         }
     }
-
-
+    
+    
+    // MARK: - Private Async Wrappers (Hide Callbacks)
     
     // WRAPPER: Convert XPC callback to async/await
     private func syncPhotosInternal(
@@ -247,7 +282,7 @@ class ADBService: ObservableObject {
                         if let error = error {
                             continuation.resume(throwing: error)
                         } else if let count = count {
-                            continuation.resume(returning: count.intValue)  // ← Convert to Int
+                            continuation.resume(returning: count.intValue)
                         } else {
                             continuation.resume(throwing: ADBServiceError.xpcError("No count returned"))
                         }
@@ -256,14 +291,6 @@ class ADBService: ObservableObject {
             )
         }
     }
-
-
-
-
-
-
-    
-    // MARK: - Private Async Wrappers (Hide Callbacks)
     
     // WRAPPER: Convert callback-based listDevices to async/await
     private func listDevices() async throws -> [Device] {
@@ -334,12 +361,12 @@ class ADBService: ObservableObject {
             }
         }
     }
-
+    
     private func stopSyncProgressPolling() {
         syncProgressTask?.cancel()
         syncProgressTask = nil
     }
-
+    
     private func updateSyncProgress() async {
         guard let service = getService() else { return }
         
@@ -349,12 +376,12 @@ class ADBService: ObservableObject {
                     if total > 0 {
                         self?.syncProgress = "Syncing \(current)/\(total) photos..."
                     }
+                    self?.syncProgressCurrent = current
                     continuation.resume()
                 }
             }
         }
     }
-
     
     // CLEANUP: Cancel tasks and invalidate connection
     deinit {

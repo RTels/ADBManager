@@ -291,11 +291,11 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         )
         
         guard !photoFiles.isEmpty else {
-            print("ℹ️ No photos found on device")
+            print("No photos found on device")
             return 0
         }
         
-        print("📸 Found \(photoFiles.count) photos on device")
+        print("Found \(photoFiles.count) photos on device")
         
         try createDestinationFolder(at: destinationPath)
         
@@ -313,7 +313,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 processedCount += 1
                 
                 if FileManager.default.fileExists(atPath: destinationFile) {
-                    print("⏭️  Skipping \(photoFile) (already exists)")
+                    print("Skipping \(photoFile) (already exists)")
                     updateSyncProgress(current: processedCount, total: totalCount)
                     continue
                 }
@@ -328,16 +328,16 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 
                 actuallySyncedCount += 1
                 updateSyncProgress(current: processedCount, total: totalCount)
-                print("✅ Synced \(photoFile) (\(actuallySyncedCount) new, \(processedCount)/\(totalCount) processed)")
+                print("Synced \(photoFile) (\(actuallySyncedCount) new, \(processedCount)/\(totalCount) processed)")
             }
             
-            print("🎉 Sync complete! \(actuallySyncedCount) new photos synced")
+            print("Sync complete! \(actuallySyncedCount) new photos synced")
             return actuallySyncedCount
             
         } catch {
             // On error, return partial count
-            print("⚠️ Sync interrupted: \(error.localizedDescription)")
-            print("📊 Partial sync: \(actuallySyncedCount) photos synced before interruption")
+            print("Sync interrupted: \(error.localizedDescription)")
+            print("Partial sync: \(actuallySyncedCount) photos synced before interruption")
             
             // Update final progress with partial count
             updateSyncProgress(current: actuallySyncedCount, total: totalCount)
