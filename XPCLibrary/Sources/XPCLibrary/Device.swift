@@ -8,7 +8,7 @@
 import Foundation
 
 @objc(AndroidDevice)
-public class Device: NSObject, NSSecureCoding, Identifiable {
+public class Device: NSObject, NSSecureCoding, Identifiable, @unchecked Sendable {
     
     public let id: String
     public let state: DeviceState

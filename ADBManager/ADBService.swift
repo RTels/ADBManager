@@ -5,31 +5,21 @@
 //  Created by rrft on 02/10/25.
 //
 
+
+//
+//  ADBService.swift
+//  ADBManager
+//
+
 import Foundation
 import XPCLibrary
 
-enum ADBServiceError: LocalizedError {
-    case noConnection
-    case serviceUnavailable
-    case xpcError(String)
-    
-    var errorDescription: String? {
-        switch self {
-        case .noConnection:
-            return "XPC connection not established"
-        case .serviceUnavailable:
-            return "Could not connect to XPC service"
-        case .xpcError(let message):
-            return message
-        }
-    }
-}
-
-// VIEWMODEL: Manages device state and communicates with XPC
+/// ViewModel: Manages UI state and orchestrates XPC client
 @MainActor
 class ADBService: ObservableObject {
     
-    // REACTIVE: Auto-update SwiftUI views
+    // MARK: - Published State
+    
     @Published var devices: [Device] = []
     @Published var isLoading = false
     @Published var error: String?
@@ -37,62 +27,31 @@ class ADBService: ObservableObject {
     @Published var isSyncing = false
     @Published var syncProgress: String?
     
-    // reconnection state
+    // Reconnection state
     @Published var needsReconnection = false
     @Published var isReconnecting = false
     @Published var deviceReconnected = false
+    @Published var deviceConfirmedGone = false
     @Published var partialSyncCount: Int?
     @Published var disconnectedDeviceId: String?
-    @Published var deviceConfirmedGone = false
-
     
+    // MARK: - Dependencies
     
-    
-    private var connection: NSXPCConnection?
+    private let client: ADBServiceClient
     private var pollingTask: Task<Void, Never>?
     private var syncProgressTask: Task<Void, Never>?
     private var syncProgressCurrent = 0
     
-    init() {
-        setupConnection()
+    init(client: ADBServiceClient = ADBServiceClient()) {
+        self.client = client
     }
     
-    // MARK: - XPC Connection Setup
+    // MARK: - Monitoring
     
-    private func setupConnection() {
-        let connection = NSXPCConnection(serviceName: "com.rrft.ADBServiceXPC")
-        
-        let interface = NSXPCInterface(with: ADBServiceProtocol.self)
-        
-        // SECURITY: Register safe classes for deserialization
-        let allowedClasses = NSSet(array: [NSArray.self, Device.self]) as! Set<AnyHashable>
-        interface.setClasses(
-            allowedClasses,
-            for: #selector(ADBServiceProtocol.listDevices(completion:)),
-            argumentIndex: 0,
-            ofReply: true
-        )
-        
-        connection.remoteObjectInterface = interface
-        connection.resume()
-        self.connection = connection
-    }
-    
-    // MARK: - Public API (Async/Await Only)
-    
-    // MONITORING: Start continuous device checking
     func startMonitoring() {
         isMonitoring = true
+        client.startMonitoring()
         
-        guard let service = getService() else {
-            error = "Service unavailable"
-            return
-        }
-        
-        // Tell XPC to start polling
-        service.startMonitoring()
-        
-        // UI refresh loop (reads cached data from XPC)
         pollingTask?.cancel()
         pollingTask = Task {
             while !Task.isCancelled {
@@ -102,34 +61,30 @@ class ADBService: ObservableObject {
         }
     }
     
-    // MONITORING: Stop device checking
     func stopMonitoring() {
         pollingTask?.cancel()
         isMonitoring = false
-        
-        guard let service = getService() else { return }
-        service.stopMonitoring()
+        client.stopMonitoring()
     }
     
-    // FETCH: Get current device list from XPC
+    // MARK: - Device Operations
+    
     func refreshDevices(showLoading: Bool = true) async {
         if showLoading {
             isLoading = true
         }
         
         do {
-            let fetchedDevices = try await listDevices()
+            let fetchedDevices = try await client.listDevices()
             self.devices = fetchedDevices
             
-            // Check if we're waiting for reconnection
+            // Check reconnection state
             if isReconnecting, let deviceId = disconnectedDeviceId {
                 let deviceExists = fetchedDevices.contains(where: { $0.id == deviceId && $0.state == .device })
                 
                 if !deviceExists {
-                    // Device is confirmed gone
                     deviceConfirmedGone = true
                 } else if deviceConfirmedGone && deviceExists {
-                    // Device came back AFTER being confirmed gone
                     deviceReconnected = true
                     isReconnecting = false
                 }
@@ -145,26 +100,27 @@ class ADBService: ObservableObject {
             isLoading = false
         }
     }
-
-
     
-    
-    // DETAIL: Fetch device info on-demand
     func fetchDeviceDetails(for device: Device) async {
         do {
-            let detailedDevice = try await getDeviceDetails(deviceId: device.id)
+            let detailedDevice = try await client.getDeviceDetails(deviceId: device.id)
             
-            // Update device in array
             if let index = devices.firstIndex(where: { $0.id == device.id }) {
                 devices[index] = detailedDevice
             }
         } catch {
-            // Silent failure - details are optional
             print("Failed to fetch details for \(device.id): \(error)")
         }
     }
     
-    // SYNC: Sync photos from device to Mac folder
+    // MARK: - Folder Operations
+    
+    func listFolders(for device: Device, at path: String) async throws -> [String] {
+        return try await client.listFolders(deviceId: device.id, path: path)
+    }
+    
+    // MARK: - Photo Sync
+    
     func syncPhotos(
         for device: Device,
         from sourcePath: String,
@@ -174,15 +130,16 @@ class ADBService: ObservableObject {
         syncProgress = "Starting sync..."
         error = nil
         
-        stopMonitoring()  // Stop monitoring during sync
+        stopMonitoring()
         startSyncProgressPolling()
         
         do {
-            let count = try await syncPhotosInternal(
+            let count = try await client.startPhotoSync(
                 deviceId: device.id,
                 sourcePath: sourcePath,
                 destinationPath: destinationPath
             )
+            
             syncProgress = "Sync complete!"
             
             Task {
@@ -196,11 +153,10 @@ class ADBService: ObservableObject {
             
             stopSyncProgressPolling()
             isSyncing = false
-            startMonitoring()  // Restart monitoring on success
+            startMonitoring()
             return count
             
         } catch {
-            // Get partial count if available
             let partialCount = syncProgressCurrent
             
             syncProgress = nil
@@ -215,141 +171,27 @@ class ADBService: ObservableObject {
             disconnectedDeviceId = device.id
             self.error = error.localizedDescription
             
-            // Start monitoring to detect reconnection
             startMonitoring()
             
             return partialCount > 0 ? partialCount : nil
         }
     }
     
-    // RESUME: Resume sync after reconnection
-    func resumeSync(for device: Device, from sourcePath: String, to destinationPath: String) async -> Int? {
+    func resumeSync(
+        for device: Device,
+        from sourcePath: String,
+        to destinationPath: String
+    ) async -> Int? {
         // Reset reconnection state
         needsReconnection = false
         isReconnecting = false
         deviceReconnected = false
         disconnectedDeviceId = nil
         
-        // Start sync again (will skip existing files)
         return await syncPhotos(for: device, from: sourcePath, to: destinationPath)
     }
     
-    // BROWSE: List folders on device
-    func listFolders(for device: Device, at path: String) async throws -> [String] {
-        guard let service = getServiceWithErrorHandler() else {
-            throw ADBServiceError.serviceUnavailable
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            service.listFolders(
-                deviceId: device.id,
-                path: path,
-                completion: { folders, error in
-                    Task { @MainActor in
-                        if let error = error {
-                            continuation.resume(throwing: error)
-                        } else if let folders = folders {
-                            continuation.resume(returning: folders)
-                        } else {
-                            continuation.resume(throwing: ADBServiceError.xpcError("No folders returned"))
-                        }
-                    }
-                }
-            )
-        }
-    }
-    
-    
-    // MARK: - Private Async Wrappers (Hide Callbacks)
-    
-    // WRAPPER: Convert XPC callback to async/await
-    private func syncPhotosInternal(
-        deviceId: String,
-        sourcePath: String,
-        destinationPath: String
-    ) async throws -> Int {
-        guard let service = getServiceWithErrorHandler() else {
-            throw ADBServiceError.serviceUnavailable
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            service.startPhotoSync(
-                deviceId: deviceId,
-                sourcePath: sourcePath,
-                destinationPath: destinationPath,
-                completion: { (count: NSNumber?, error: Error?) in
-                    Task { @MainActor in
-                        if let error = error {
-                            continuation.resume(throwing: error)
-                        } else if let count = count {
-                            continuation.resume(returning: count.intValue)
-                        } else {
-                            continuation.resume(throwing: ADBServiceError.xpcError("No count returned"))
-                        }
-                    }
-                }
-            )
-        }
-    }
-    
-    // WRAPPER: Convert callback-based listDevices to async/await
-    private func listDevices() async throws -> [Device] {
-        guard let service = getServiceWithErrorHandler() else {
-            throw ADBServiceError.serviceUnavailable
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            service.listDevices { devices, error in
-                if let error = error {
-                    continuation.resume(throwing: ADBServiceError.xpcError(error.localizedDescription))
-                } else if let devices = devices {
-                    continuation.resume(returning: devices)
-                } else {
-                    continuation.resume(throwing: ADBServiceError.xpcError("No data returned"))
-                }
-            }
-        }
-    }
-    
-    // WRAPPER: Convert callback-based getDeviceDetails to async/await
-    private func getDeviceDetails(deviceId: String) async throws -> Device {
-        guard let service = getServiceWithErrorHandler() else {
-            throw ADBServiceError.serviceUnavailable
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            service.getDeviceDetails(deviceId: deviceId) { device, error in
-                if let error = error {
-                    continuation.resume(throwing: ADBServiceError.xpcError(error.localizedDescription))
-                } else if let device = device {
-                    continuation.resume(returning: device)
-                } else {
-                    continuation.resume(throwing: ADBServiceError.xpcError("No data returned"))
-                }
-            }
-        }
-    }
-    
-    // MARK: - Helper Methods
-    
-    // HELPER: Get service proxy (simple)
-    private func getService() -> ADBServiceProtocol? {
-        guard let connection = connection else { return nil }
-        return connection.remoteObjectProxy as? ADBServiceProtocol
-    }
-    
-    // HELPER: Get service proxy with error handler
-    private func getServiceWithErrorHandler() -> ADBServiceProtocol? {
-        guard let connection = connection else { return nil }
-        
-        let service = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
-            Task { @MainActor in
-                self?.error = error.localizedDescription
-            }
-        } as? ADBServiceProtocol
-        
-        return service
-    }
+    // MARK: - Progress Tracking
     
     private func startSyncProgressPolling() {
         syncProgressTask?.cancel()
@@ -357,7 +199,7 @@ class ADBService: ObservableObject {
         syncProgressTask = Task {
             while !Task.isCancelled {
                 await updateSyncProgress()
-                try? await Task.sleep(for: .milliseconds(500))  // Poll every 0.5s
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
@@ -368,24 +210,18 @@ class ADBService: ObservableObject {
     }
     
     private func updateSyncProgress() async {
-        guard let service = getService() else { return }
+        let progress = await client.getPhotoSyncProgress()
         
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            service.getPhotoSyncProgress { [weak self] current, total in
-                Task { @MainActor in
-                    if total > 0 {
-                        self?.syncProgress = "Syncing \(current)/\(total) photos..."
-                    }
-                    self?.syncProgressCurrent = current
-                    continuation.resume()
-                }
-            }
+        if progress.total > 0 {
+            syncProgress = "Syncing \(progress.current)/\(progress.total) photos..."
         }
+        syncProgressCurrent = progress.current
     }
     
-    // CLEANUP: Cancel tasks and invalidate connection
+    // MARK: - Cleanup
+    
     deinit {
         pollingTask?.cancel()
-        connection?.invalidate()
+        client.invalidate()
     }
 }
