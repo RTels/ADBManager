@@ -14,7 +14,6 @@ public enum ADBUtilities {
     /// - Returns: Full path to adb binary
     /// - Throws: ADBError.adbNotFound if binary not in package resources
     public static func getADBPath() throws -> String {
-        // Bundle.module works here because we're INSIDE the package
         guard let path = Bundle.module.path(forResource: "adb", ofType: nil) else {
             throw ADBError.adbNotFound
         }
@@ -24,7 +23,6 @@ public enum ADBUtilities {
         return path
     }
     
-    /// Set executable permissions on file
     private static func ensureExecutable(at path: String) throws {
         let fileManager = FileManager.default
         try fileManager.setAttributes(
@@ -34,12 +32,11 @@ public enum ADBUtilities {
     }
 }
 
-/// Errors that can occur during ADB operations
 public enum ADBError: Error, LocalizedError {
     case adbNotFound
     case invalidOutput
     case commandFailed(String)
-    case deviceDisconnected  // ← NEW
+    case deviceDisconnected
     
     public var errorDescription: String? {
         switch self {

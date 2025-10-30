@@ -2,8 +2,6 @@
 //  DeviceInfoView.swift
 //  ADBManager
 //
-//  Created by rrft on 28/10/25.
-//
 
 import SwiftUI
 import XPCLibrary
@@ -45,7 +43,24 @@ struct DeviceInfoView: View {
     }
 }
 
-#Preview {
-    DeviceInfoView(device: Device(id: "ABC123", stateString: "device"))
-        .padding()
+#Preview("Full Device Info") {
+    DeviceInfoView(device: {
+        let device = Device(id: "ABC123XYZ", stateString: "device")
+        device.model = "Pixel 6 Pro"
+        device.manufacturer = "Google"
+        device.androidVersion = "14"
+        device.apiLevel = "34"
+        device.batteryLevel = "85%"
+        return device
+    }())
+    .padding()
+    .frame(width: 500)
+}
+
+#Preview("Minimal Info") {
+    DeviceInfoView(
+        device: Device(id: "TEST123", stateString: "device")
+    )
+    .padding()
+    .frame(width: 500)
 }

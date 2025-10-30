@@ -16,6 +16,7 @@ struct ContentView: View {
                 adbService: adbService,
                 selectedDevice: $selectedDevice
             )
+            .frame(minWidth: 250)
         } detail: {
             DeviceDetailView(
                 adbService: adbService,
@@ -24,6 +25,7 @@ struct ContentView: View {
             .frame(minWidth: 400)
         }
         .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewColumnWidth(300)
         .onAppear {
             Task {
                 await adbService.refreshDevices()

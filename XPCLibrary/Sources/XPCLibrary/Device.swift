@@ -27,9 +27,17 @@ public class Device: NSObject, NSSecureCoding, Identifiable, @unchecked Sendable
     }
     
     public var displayName: String {
-        let stateText = state == .device ? "Connected" : state.rawValue.capitalized
-        return "\(id) - \(stateText)"
+        if let model = model, !model.isEmpty {
+            return model
+        }
+        
+        if let manufacturer = manufacturer, !manufacturer.isEmpty {
+            return manufacturer
+        }
+        
+        return id
     }
+
     
     
     public static var supportsSecureCoding: Bool { true }
@@ -50,7 +58,6 @@ public class Device: NSObject, NSSecureCoding, Identifiable, @unchecked Sendable
         super.init()
     }
     
-    // converts object → data for XPC
     public func encode(with coder: NSCoder) {
         coder.encode(id as NSString, forKey: "id")
         coder.encode(state.rawValue as NSString, forKey: "state")

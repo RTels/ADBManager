@@ -6,7 +6,7 @@
 import Foundation
 
 /// Client for communicating with ADB XPC Service
-/// Provides clean async/await API, hiding XPC callback complexity
+
 public final class ADBServiceClient {
     
     private let connectionManager: XPCConnectionManager
@@ -15,7 +15,6 @@ public final class ADBServiceClient {
         self.connectionManager = connectionManager
     }
     
-    // MARK: - Monitoring
     
     public func startMonitoring() {
         guard let service = connectionManager.getService() else { return }
@@ -27,7 +26,6 @@ public final class ADBServiceClient {
         service.stopMonitoring()
     }
     
-    // MARK: - Device Operations
     
     public func listDevices() async throws -> [Device] {
         guard let service = getServiceWithErrorHandler() else {
@@ -65,31 +63,40 @@ public final class ADBServiceClient {
         }
     }
     
-    // MARK: - Folder Operations
-    
-    public func listFolders(deviceId: String, path: String) async throws -> [String] {
+    public func listFolderContents(deviceId: String, path: String) async throws -> [FolderItem] {
         guard let service = getServiceWithErrorHandler() else {
             throw ADBServiceError.serviceUnavailable
         }
         
         return try await withCheckedThrowingContinuation { continuation in
-            service.listFolders(
+            service.listFolderContents(
                 deviceId: deviceId,
                 path: path,
-                completion: { folders, error in
+                completion: { items, error in
                     if let error = error {
                         continuation.resume(throwing: error)
-                    } else if let folders = folders {
-                        continuation.resume(returning: folders)
+                    } else if let items = items {
+                        let folderItems = items.compactMap { dict -> FolderItem? in
+                            guard let type = dict["type"] as? String,
+                                  let name = dict["name"] as? String else {
+                                return nil
+                            }
+                            
+                            if type == "folder" {
+                                let count = dict["photoCount"] as? Int ?? 0
+                                return .folder(name: name, photoCount: count)
+                            } else {
+                                return .photo(name: name)
+                            }
+                        }
+                        continuation.resume(returning: folderItems)
                     } else {
-                        continuation.resume(throwing: ADBServiceError.xpcError("No folders returned"))
+                        continuation.resume(throwing: ADBServiceError.xpcError("No data returned"))
                     }
                 }
             )
         }
     }
-    
-    // MARK: - Photo Sync
     
     public func startPhotoSync(
         deviceId: String,
@@ -118,27 +125,23 @@ public final class ADBServiceClient {
         }
     }
     
-    public func getPhotoSyncProgress() async -> (current: Int, total: Int) {
+    public func getPhotoSyncProgress() async -> (current: Int, total: Int, currentFile: String) {
         guard let service = connectionManager.getService() else {
-            return (0, 0)
+            return (0, 0, "")
         }
         
         return await withCheckedContinuation { continuation in
-            service.getPhotoSyncProgress { current, total in
-                continuation.resume(returning: (current, total))
+            service.getPhotoSyncProgress { current, total, file in
+                continuation.resume(returning: (current, total, file))
             }
         }
     }
-    
-    // MARK: - Helpers
     
     private func getServiceWithErrorHandler() -> ADBServiceProtocol? {
         return connectionManager.getServiceWithErrorHandler { error in
             print("XPC Error: \(error.localizedDescription)")
         }
     }
-    
-    // MARK: - Cleanup
     
     public func invalidate() {
         connectionManager.invalidate()

@@ -2,8 +2,6 @@
 //  FolderBrowserView.swift
 //  ADBManager
 //
-//  Created by rrft on 28/10/25.
-//
 
 import SwiftUI
 import XPCLibrary
@@ -15,7 +13,7 @@ struct FolderBrowserView: View {
     @Environment(\.dismiss) var dismiss
     
     @State private var currentPath: String = "/sdcard/"
-    @State private var folders: [String] = []
+    @State private var items: [FolderItem] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var pathHistory: [String] = ["/sdcard/"]
@@ -30,7 +28,7 @@ struct FolderBrowserView: View {
             if let error = errorMessage {
                 errorView(error: error)
             } else {
-                folderList
+                itemList
             }
             
             Divider()
@@ -38,7 +36,7 @@ struct FolderBrowserView: View {
         }
         .frame(width: 500, height: 400)
         .task {
-            await loadFolders()
+            await loadItems()
         }
     }
     
@@ -71,18 +69,20 @@ struct FolderBrowserView: View {
             
             if isLoading {
                 ProgressView()
-                    .scaleEffect(0.6)
+                    .scaleEffect(0.6)  
             }
         }
         .padding()
     }
     
-    private var folderList: some View {
+    private var itemList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(folders, id: \.self) { folder in
-                    FolderRow(folderName: folder) {
-                        navigateInto(folder: folder)
+                ForEach(items) { item in
+                    FolderItemRow(item: item) {
+                        if item.isFolder {
+                            navigateInto(folder: item.name)
+                        }
                     }
                 }
             }
@@ -120,12 +120,12 @@ struct FolderBrowserView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
     
-    private func loadFolders() async {
+    private func loadItems() async {
         isLoading = true
         errorMessage = nil
         
         do {
-            folders = try await adbService.listFolders(for: device, at: currentPath)
+            items = try await adbService.listFolderContents(for: device, at: currentPath)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -143,7 +143,7 @@ struct FolderBrowserView: View {
         currentPath = newPath
         
         Task {
-            await loadFolders()
+            await loadItems()
         }
     }
     
@@ -152,7 +152,7 @@ struct FolderBrowserView: View {
         currentPath = pathHistory.removeLast()
         
         Task {
-            await loadFolders()
+            await loadItems()
         }
     }
 }
@@ -164,4 +164,3 @@ struct FolderBrowserView: View {
         selectedPath: .constant("/sdcard/")
     )
 }
-

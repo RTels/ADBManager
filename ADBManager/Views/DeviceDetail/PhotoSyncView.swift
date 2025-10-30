@@ -2,8 +2,6 @@
 //  PhotoSyncView.swift
 //  ADBManager
 //
-//  Created by rrft on 28/10/25.
-//
 
 import SwiftUI
 import XPCLibrary
@@ -36,14 +34,37 @@ struct PhotoSyncView: View {
     }
     
     private var syncingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .scaleEffect(0.8)
-            
+        VStack(spacing: 16) {
             if let progress = adbService.syncProgress {
                 Text(progress)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            if adbService.syncTotalCount > 0 {
+                ProgressView(value: Double(adbService.syncCurrentCount), total: Double(adbService.syncTotalCount))
+                    .progressViewStyle(.linear)
+                    .tint(.gray)
+            } else {
+                ProgressView()
+                    .scaleEffect(0.8)
+            }
+        
+            if !adbService.syncCurrentPhoto.isEmpty {
+                VStack(spacing: 8) {
+                    Text("Current:")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    Text(adbService.syncCurrentPhoto)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -84,24 +105,30 @@ struct PhotoSyncView: View {
             Divider()
                 .padding(.vertical, 4)
             
-            Button(action: {
-                Task {
-                    await handleSyncPhotos()
+            VStack(spacing: 8) {
+                Button(action: {
+                    Task {
+                        await handleSyncPhotos()
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                        Text("Sync Photos to Mac")
+                            .font(.body)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 }
-            }) {
-                HStack {
-                    Image(systemName: "photo.on.rectangle.angled")
-                    Text("Sync Photos to Mac")
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(device.state != .device)
+                
+                Text("Syncs all photos from selected folder")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(device.state != .device)
-            
-            Text("Syncs all photos from selected folder")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
     }
     
@@ -144,14 +171,48 @@ struct PhotoSyncView: View {
     }
 }
 
-#Preview {
+#Preview("Ready to Sync") {
     PhotoSyncView(
-        device: Device(id: "ABC123", stateString: "device"),
-        adbService: ADBService(),
+        device: {
+            let device = Device(id: "ABC123", stateString: "device")
+            device.model = "Pixel 6 Pro"
+            return device
+        }(),
+        adbService: {
+            let service = ADBService()
+            service.isMonitoring = true
+            return service
+        }(),
         selectedSourcePath: .constant("/sdcard/DCIM/Camera/"),
         showFolderBrowser: .constant(false),
         destinationFolder: .constant(nil),
         onSyncComplete: { _ in }
     )
     .padding()
+    .frame(width: 500)
+}
+
+#Preview("Syncing") {
+    PhotoSyncView(
+        device: {
+            let device = Device(id: "ABC123", stateString: "device")
+            device.model = "Pixel 6 Pro"
+            return device
+        }(),
+        adbService: {
+            let service = ADBService()
+            service.isSyncing = true
+            service.syncProgress = "Syncing 42/100 photos..."
+            service.syncCurrentCount = 42
+            service.syncTotalCount = 100
+            service.syncCurrentPhoto = "Syncing: IMG_20250115_143022.jpg"
+            return service
+        }(),
+        selectedSourcePath: .constant("/sdcard/DCIM/Camera/"),
+        showFolderBrowser: .constant(false),
+        destinationFolder: .constant(nil),
+        onSyncComplete: { _ in }
+    )
+    .padding()
+    .frame(width: 500)
 }

@@ -2,23 +2,13 @@
 //  ADBService.swift
 //  ADBManager
 //
-//  Created by rrft on 02/10/25.
-//
-
-
-//
-//  ADBService.swift
-//  ADBManager
-//
 
 import Foundation
 import XPCLibrary
 
-/// ViewModel: Manages UI state and orchestrates XPC client
 @MainActor
 class ADBService: ObservableObject {
     
-    // MARK: - Published State
     
     @Published var devices: [Device] = []
     @Published var isLoading = false
@@ -27,7 +17,11 @@ class ADBService: ObservableObject {
     @Published var isSyncing = false
     @Published var syncProgress: String?
     
-    // Reconnection state
+    
+    @Published var syncCurrentCount: Int = 0
+    @Published var syncTotalCount: Int = 0
+    @Published var syncCurrentPhoto: String = ""
+    
     @Published var needsReconnection = false
     @Published var isReconnecting = false
     @Published var deviceReconnected = false
@@ -35,7 +29,6 @@ class ADBService: ObservableObject {
     @Published var partialSyncCount: Int?
     @Published var disconnectedDeviceId: String?
     
-    // MARK: - Dependencies
     
     private let client: ADBServiceClient
     private var pollingTask: Task<Void, Never>?
@@ -46,7 +39,6 @@ class ADBService: ObservableObject {
         self.client = client
     }
     
-    // MARK: - Monitoring
     
     func startMonitoring() {
         isMonitoring = true
@@ -67,7 +59,6 @@ class ADBService: ObservableObject {
         client.stopMonitoring()
     }
     
-    // MARK: - Device Operations
     
     func refreshDevices(showLoading: Bool = true) async {
         if showLoading {
@@ -78,15 +69,19 @@ class ADBService: ObservableObject {
             let fetchedDevices = try await client.listDevices()
             self.devices = fetchedDevices
             
-            // Check reconnection state
             if isReconnecting, let deviceId = disconnectedDeviceId {
-                let deviceExists = fetchedDevices.contains(where: { $0.id == deviceId && $0.state == .device })
+                let deviceExists = fetchedDevices.contains(where: { $0.id == deviceId && $0.state == DeviceState.device })
                 
                 if !deviceExists {
                     deviceConfirmedGone = true
                 } else if deviceConfirmedGone && deviceExists {
                     deviceReconnected = true
                     isReconnecting = false
+                }
+            }
+            for device in fetchedDevices where device.state == .device {
+                Task {
+                    await fetchDeviceDetails(for: device)
                 }
             }
             
@@ -113,13 +108,10 @@ class ADBService: ObservableObject {
         }
     }
     
-    // MARK: - Folder Operations
-    
-    func listFolders(for device: Device, at path: String) async throws -> [String] {
-        return try await client.listFolders(deviceId: device.id, path: path)
+    func listFolderContents(for device: Device, at path: String) async throws -> [FolderItem] {
+        return try await client.listFolderContents(deviceId: device.id, path: path)
     }
-    
-    // MARK: - Photo Sync
+
     
     func syncPhotos(
         for device: Device,
@@ -153,6 +145,7 @@ class ADBService: ObservableObject {
             
             stopSyncProgressPolling()
             isSyncing = false
+            syncCurrentPhoto = ""
             startMonitoring()
             return count
             
@@ -162,19 +155,28 @@ class ADBService: ObservableObject {
             syncProgress = nil
             stopSyncProgressPolling()
             isSyncing = false
+            syncCurrentPhoto = ""
             
-            // Set reconnection state
-            needsReconnection = true
-            isReconnecting = true
-            deviceConfirmedGone = false
-            partialSyncCount = partialCount > 0 ? partialCount : nil
-            disconnectedDeviceId = device.id
-            self.error = error.localizedDescription
+            let errorMessage = error.localizedDescription
+            let isDisconnectionError = errorMessage.contains("device offline") ||
+                                       errorMessage.contains("device not found") ||
+                                       errorMessage.contains("disconnected")
+            
+            if isDisconnectionError {
+                needsReconnection = true
+                isReconnecting = true
+                deviceConfirmedGone = false
+                partialSyncCount = partialCount > 0 ? partialCount : nil
+                disconnectedDeviceId = device.id
+            }
+            
+            self.error = errorMessage
             
             startMonitoring()
             
             return partialCount > 0 ? partialCount : nil
         }
+
     }
     
     func resumeSync(
@@ -182,7 +184,6 @@ class ADBService: ObservableObject {
         from sourcePath: String,
         to destinationPath: String
     ) async -> Int? {
-        // Reset reconnection state
         needsReconnection = false
         isReconnecting = false
         deviceReconnected = false
@@ -191,7 +192,6 @@ class ADBService: ObservableObject {
         return await syncPhotos(for: device, from: sourcePath, to: destinationPath)
     }
     
-    // MARK: - Progress Tracking
     
     private func startSyncProgressPolling() {
         syncProgressTask?.cancel()
@@ -214,11 +214,13 @@ class ADBService: ObservableObject {
         
         if progress.total > 0 {
             syncProgress = "Syncing \(progress.current)/\(progress.total) photos..."
+            syncCurrentCount = progress.current
+            syncTotalCount = progress.total
+            syncCurrentPhoto = progress.currentFile
         }
         syncProgressCurrent = progress.current
     }
     
-    // MARK: - Cleanup
     
     deinit {
         pollingTask?.cancel()

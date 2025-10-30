@@ -45,7 +45,7 @@
 		AE348EB22E8EECF300F4F173 /* Exceptions for "ADBManager" folder in "AdbXPCService" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				ADBService.swift,
+				Services/ADBService.swift,
 			);
 			target = AE348E942E8EDB6E00F4F173 /* AdbXPCService */;
 		};

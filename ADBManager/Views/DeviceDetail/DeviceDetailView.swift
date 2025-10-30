@@ -2,9 +2,6 @@
 //  DeviceDetailView.swift
 //  ADBManager
 //
-//  Created by rrft on 28/10/25.
-//
-
 
 import SwiftUI
 import XPCLibrary
@@ -14,13 +11,13 @@ struct DeviceDetailView: View {
     @ObservedObject var adbService: ADBService
     let deviceId: String?
     
-    @State private var isLoadingDetails = false
     @State private var selectedSourcePath: String? = "/sdcard/DCIM/Camera/"
     @State private var showFolderBrowser = false
     @State private var showSuccessAlert = false
     @State private var syncedPhotoCount = 0
     @State private var destinationFolder: String?
     @State private var lastKnownDevice: Device?
+    @State private var showDeviceInfo = false  // ← For popover
     
     private var device: Device? {
         guard let deviceId = deviceId else { return nil }
@@ -62,19 +59,48 @@ struct DeviceDetailView: View {
                     }
                 }
                 
-                ScrollView {
-                    VStack(spacing: 24) {
-                        DeviceHeaderView(device: device)
-                        Divider()
-                        
-                        if isLoadingDetails {
-                            ProgressView("Loading device details...")
-                        } else {
-                            DeviceInfoView(device: device)
+                
+                // Compact header with info button
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(statusColor(for: device))
+                        .frame(width: 12, height: 12)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(device.displayName)
+                                .font(.headline)
+                            
+                            Button(action: {
+                                showDeviceInfo = true
+                            }) {
+                                Image(systemName: "info.circle")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
                         
-                        Divider()
-                        
+                        // Status below
+                        Text(device.state.displayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(height: 66)
+                .background(Color(NSColor.controlBackgroundColor))
+
+
+
+                
+                Divider()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
                         PhotoSyncView(
                             device: device,
                             adbService: adbService,
@@ -112,9 +138,7 @@ struct DeviceDetailView: View {
         .background(Color(NSColor.textBackgroundColor))
         .task(id: device.id) {
             if device.model == nil && device.state == .device {
-                isLoadingDetails = true
                 await adbService.fetchDeviceDetails(for: device)
-                isLoadingDetails = false
             }
         }
         .sheet(isPresented: $showFolderBrowser) {
@@ -123,6 +147,9 @@ struct DeviceDetailView: View {
                 device: device,
                 selectedPath: $selectedSourcePath
             )
+        }
+        .sheet(isPresented: $showDeviceInfo) {  // ← Device info popover
+            DeviceInfoPopover(device: device)
         }
         .alert("Sync Complete!", isPresented: $showSuccessAlert) {
             Button("Open Folder") {
@@ -146,7 +173,7 @@ struct DeviceDetailView: View {
                 .font(.title2)
                 .foregroundColor(.secondary)
             
-            Text("Choose a device from the list to view details")
+            Text("Choose a device from the list to sync photos")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -166,11 +193,28 @@ struct DeviceDetailView: View {
             }
         }
     }
+    
+    private func statusColor(for device: Device) -> Color {
+        switch device.state {
+        case .device: return .green
+        case .offline: return .orange
+        case .unauthorized: return .red
+        case .unknown: return .gray
+        }
+    }
 }
 
 #Preview {
     DeviceDetailView(
-        adbService: ADBService(),
-        deviceId: "test123"
+        adbService: {
+            let service = ADBService()
+            let device = Device(id: "ABC123", stateString: "device")
+            device.model = "Pixel 6 Pro"
+            device.batteryLevel = "85%"
+            service.devices = [device]
+            return service
+        }(),
+        deviceId: "ABC123"
     )
+    .frame(width: 600, height: 600)
 }

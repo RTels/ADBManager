@@ -1,8 +1,6 @@
 //
-//  ADBXPCService.swift
-//  ADBXPCService
-//
-//  Created by rrft on 02/10/25.
+//  ADBServiceProtocol.swift
+//  XPCLibrary
 //
 
 import Foundation
@@ -14,11 +12,10 @@ import Foundation
     func stopMonitoring()
     func startPhotoSync(
         deviceId: String,
-        sourcePath: String,      
+        sourcePath: String,
         destinationPath: String,
         completion: @escaping @Sendable (NSNumber?, Error?) -> Void
     )
-    func getPhotoSyncProgress(completion: @escaping @Sendable (Int, Int) -> Void)
-    func listFolders(deviceId: String, path: String, completion: @escaping @Sendable ([String]?, Error?) -> Void)
+    func getPhotoSyncProgress(completion: @escaping @Sendable (Int, Int, String) -> Void)
+    func listFolderContents(deviceId: String, path: String, completion: @escaping @Sendable ([[String: Any]]?, Error?) -> Void)  // ← NEW
 }
-

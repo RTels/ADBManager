@@ -1,33 +1,11 @@
-
 //
 //  ADBServiceImplementation.swift
 //  XPCLibrary
 //
 
-
 import Foundation
 
 public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unchecked Sendable {
- 
-    
-    public func listFolders(
-        deviceId: String,
-        path: String,
-        completion: @escaping @Sendable ([String]?, Error?) -> Void
-    ) {
-        Task {
-            do {
-                let folders = try await listFoldersOnDevice(
-                    deviceId: deviceId,
-                    path: path
-                )
-                completion(folders, nil)
-            } catch {
-                completion(nil, error)
-            }
-        }
-    }
-    
     
     private var cachedDevices: [Device] = []
     private var pollingTask: Task<Void, Never>?
@@ -36,11 +14,70 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
     private var syncProgressCurrent: Int = 0
     private var syncProgressTotal: Int = 0
     private let syncProgressLock = NSLock()
+    private var syncProgressCurrentFile: String = ""
     
     public override init() {
         super.init()
     }
     
+    
+    public func listFolderContents(
+        deviceId: String,
+        path: String,
+        completion: @escaping @Sendable ([[String: Any]]?, Error?) -> Void
+    ) {
+        Task {
+            do {
+                let items = try await listFolderContentsOnDevice(
+                    deviceId: deviceId,
+                    path: path
+                )
+                completion(items, nil)
+            } catch {
+                completion(nil, error)
+            }
+        }
+    }
+    
+    private func listFolderContentsOnDevice(
+        deviceId: String,
+        path: String
+    ) async throws -> [[String: Any]] {
+        let adbPath = try getADBPath()
+        
+        var items: [[String: Any]] = []
+        
+        let dirOutput = try await runADBCommand(
+            adbPath: adbPath,
+            deviceId: deviceId,
+            command: "shell",
+            args: ["find", path, "-maxdepth", "1", "-type", "d"]
+        )
+        
+        let allPaths = dirOutput
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .filter { $0 != path }
+        
+        let folderNames = allPaths.map { ($0 as NSString).lastPathComponent }
+        
+        for folderName in folderNames {
+            items.append([
+                "type": "folder",
+                "name": folderName,
+                "photoCount": 0
+            ])
+        }
+        
+        items.sort { item1, item2 in
+            let name1 = item1["name"] as! String
+            let name2 = item2["name"] as! String
+            return name1 < name2
+        }
+        
+        return items
+    }
     
     public func startMonitoring() {
         pollingTask?.cancel()
@@ -73,7 +110,8 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
             }
         }
     }
-
+    
+    
     public func startPhotoSync(
         deviceId: String,
         sourcePath: String,
@@ -89,23 +127,30 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 )
                 completion(NSNumber(value: count), nil)
             } catch {
-                completion(nil, error)
+                let nsError = error as NSError
+                let userInfo = [NSLocalizedDescriptionKey: error.localizedDescription]
+                let wrappedError = NSError(
+                    domain: nsError.domain,
+                    code: nsError.code,
+                    userInfo: userInfo
+                )
+                completion(nil, wrappedError)
             }
         }
     }
 
-
-
-
-    public func getPhotoSyncProgress(completion: @escaping @Sendable (Int, Int) -> Void) {
+    
+    public func getPhotoSyncProgress(completion: @escaping @Sendable (Int, Int, String) -> Void) {
         syncProgressLock.lock()
         let current = syncProgressCurrent
         let total = syncProgressTotal
+        let file = syncProgressCurrentFile
         syncProgressLock.unlock()
         
-        completion(current, total)
+        completion(current, total, file)
     }
-        
+    
+    
     private func pollDevices() async {
         do {
             let devices = try await performListDevices()
@@ -173,8 +218,17 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
             adbPath: adbPath,
             deviceId: deviceId,
             command: "shell",
-            args: ["getprop", "ro.product.model"]
+            args: ["getprop", "ro.product.marketname"]
         )
+        
+        if device.model == nil || device.model?.isEmpty == true {
+            device.model = try? await runADBCommand(
+                adbPath: adbPath,
+                deviceId: deviceId,
+                command: "shell",
+                args: ["getprop", "ro.product.model"]
+            )
+        }
         
         device.manufacturer = try? await runADBCommand(
             adbPath: adbPath,
@@ -274,9 +328,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         return devices
     }
     
-    // MARK: - Photo Sync Implementation
-
-    /// Main photo sync logic
+    
     private func performPhotoSync(
         deviceId: String,
         sourcePath: String,
@@ -291,8 +343,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         )
         
         guard !photoFiles.isEmpty else {
-            print("No photos found on device")
-            return 0
+            throw ADBError.commandFailed("No photos found in this folder.\n\nPlease select a different folder with images.")
         }
         
         print("Found \(photoFiles.count) photos on device")
@@ -305,7 +356,6 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         
         updateSyncProgress(current: 0, total: totalCount)
         
-        // Track partial progress even on failure
         do {
             for photoFile in photoFiles {
                 let destinationFile = (destinationPath as NSString).appendingPathComponent(photoFile)
@@ -314,9 +364,11 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 
                 if FileManager.default.fileExists(atPath: destinationFile) {
                     print("Skipping \(photoFile) (already exists)")
-                    updateSyncProgress(current: processedCount, total: totalCount)
+                    updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Skipped: \(photoFile)")
                     continue
                 }
+                
+                updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Syncing: \(photoFile)")
                 
                 try await pullPhoto(
                     adbPath: adbPath,
@@ -327,7 +379,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 )
                 
                 actuallySyncedCount += 1
-                updateSyncProgress(current: processedCount, total: totalCount)
+                updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Completed: \(photoFile)")
                 print("Synced \(photoFile) (\(actuallySyncedCount) new, \(processedCount)/\(totalCount) processed)")
             }
             
@@ -335,49 +387,43 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
             return actuallySyncedCount
             
         } catch {
-            // On error, return partial count
             print("Sync interrupted: \(error.localizedDescription)")
             print("Partial sync: \(actuallySyncedCount) photos synced before interruption")
             
-            // Update final progress with partial count
             updateSyncProgress(current: actuallySyncedCount, total: totalCount)
             
-            throw error  // Re-throw with partial count saved
+            throw error
         }
     }
-
-
-    /// List photos in device's DCIM/Camera folder
+    
     private func listPhotosOnDevice(
         adbPath: String,
         deviceId: String,
-        sourcePath: String        // ← NEW
+        sourcePath: String
     ) async throws -> [String] {
-        let output = try await runADBCommand(
-            adbPath: adbPath,
-            deviceId: deviceId,
-            command: "shell",
-            args: ["ls", sourcePath]   // ← Use dynamic path
-        )
-        
-        let files = output
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .filter { isPhotoFile($0) }
-        
-        return files
-    }
-
-
-    /// Check if filename is a photo (by extension)
-    private func isPhotoFile(_ filename: String) -> Bool {
         let photoExtensions = ["jpg", "jpeg", "png", "heic", "dng", "raw"]
-        let ext = (filename as NSString).pathExtension.lowercased()
-        return photoExtensions.contains(ext)
+        var allPhotos: [String] = []
+        
+        for ext in photoExtensions {
+            let output = try await runADBCommand(
+                adbPath: adbPath,
+                deviceId: deviceId,
+                command: "shell",
+                args: ["find", sourcePath, "-maxdepth", "1", "-type", "f", "-iname", "*.\(ext)"]
+            )
+            
+            let photos = output
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .map { ($0 as NSString).lastPathComponent }
+            
+            allPhotos.append(contentsOf: photos)
+        }
+        
+        return Array(Set(allPhotos)).sorted()
     }
-
-    /// Pull a single photo from device
+    
     private func pullPhoto(
         adbPath: String,
         deviceId: String,
@@ -403,18 +449,16 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
             
-            // DETECT: Device disconnection
             if errorMessage.contains("device offline") ||
                errorMessage.contains("device not found") ||
                errorMessage.contains("no devices") {
-                throw ADBError.deviceDisconnected  // ← Specific error
+                throw ADBError.deviceDisconnected
             }
             
             throw ADBError.commandFailed("Failed to pull \(fileName): \(errorMessage)")
         }
     }
-
-    /// Create destination folder if it doesn't exist
+    
     private func createDestinationFolder(at path: String) throws {
         let fileManager = FileManager.default
         
@@ -428,47 +472,11 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         }
     }
     
-    private func updateSyncProgress(current: Int, total: Int) {
+    private func updateSyncProgress(current: Int, total: Int, currentFile: String = "") {
         syncProgressLock.lock()
         syncProgressCurrent = current
         syncProgressTotal = total
+        syncProgressCurrentFile = currentFile
         syncProgressLock.unlock()
     }
-    
-    /// List all folders (directories) at given path on device
-    private func listFoldersOnDevice(
-        deviceId: String,
-        path: String
-    ) async throws -> [String] {
-        let adbPath = try getADBPath()
-        
-        // Use 'find' command to list only directories
-        let output = try await runADBCommand(
-            adbPath: adbPath,
-            deviceId: deviceId,
-            command: "shell",
-            args: ["find", path, "-maxdepth", "1", "-type", "d"]
-        )
-        
-        // Parse output - one path per line
-        let allPaths = output
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .filter { $0 != path }  // Exclude current directory
-        
-        // Extract just the folder names (not full paths)
-        let folders = allPaths.map { fullPath in
-            (fullPath as NSString).lastPathComponent
-        }
-        .sorted()
-        
-        return folders
-    }
-
-
-
-    
-    
 }
-

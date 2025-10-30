@@ -2,8 +2,6 @@
 //  DeviceSidebarView.swift
 //  ADBManager
 //
-//  Created by rrft on 28/10/25.
-//
 
 import SwiftUI
 import XPCLibrary
@@ -33,29 +31,58 @@ struct DeviceSidebarView: View {
     }
     
     private var sidebarHeader: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .foregroundColor(.accentColor)
-                Text("Devices")
-                    .font(.headline)
-                Spacer()
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .foregroundColor(.accentColor)
+                    Text("Devices")
+                        .font(.headline)
+                }
+                
+                if adbService.isMonitoring {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        
+                        Text("Monitoring")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Text(" ")
+                        .font(.caption)
+                }
             }
             
-            if adbService.isMonitoring {
-                MonitoringIndicator()
-            }
+            Spacer()
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(height: 66)
         .background(Color(NSColor.controlBackgroundColor))
     }
     
+    
     private var deviceList: some View {
-        List(adbService.devices, selection: $selectedDevice) { device in
-            DeviceListItem(device: device)
-                .tag(device)
+        ScrollView {
+            LazyVStack(spacing: 4) {
+                ForEach(adbService.devices) { device in
+                    Button(action: {
+                        selectedDevice = device  
+                    }) {
+                        DeviceListItem(
+                            device: device,
+                            isSelected: selectedDevice?.id == device.id
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
-        .listStyle(.sidebar)
     }
     
     private var emptyState: some View {
@@ -73,7 +100,16 @@ struct DeviceSidebarView: View {
 
 #Preview {
     DeviceSidebarView(
-        adbService: ADBService(),
+        adbService: {
+            let service = ADBService()
+            let device1 = Device(id: "ABC123", stateString: "device")
+            device1.model = "Pixel 6"
+            let device2 = Device(id: "DEF456", stateString: "device")
+            device2.model = "Redmi Note 14"
+            service.devices = [device1, device2]
+            return service
+        }(),
         selectedDevice: .constant(nil)
     )
+    .frame(width: 300, height: 400)
 }
