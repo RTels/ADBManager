@@ -46,6 +46,7 @@ struct ReconnectionPanel: View {
                     adbService.deviceReconnected = false
                     adbService.partialSyncCount = nil
                     adbService.disconnectedDeviceId = nil
+                    adbService.error = nil
                 }
                 .buttonStyle(.bordered)
                 

@@ -17,7 +17,7 @@ struct DeviceDetailView: View {
     @State private var syncedPhotoCount = 0
     @State private var destinationFolder: String?
     @State private var lastKnownDevice: Device?
-    @State private var showDeviceInfo = false  // ← For popover
+    @State private var showDeviceInfo = false
     
     private var device: Device? {
         guard let deviceId = deviceId else { return nil }
@@ -59,7 +59,6 @@ struct DeviceDetailView: View {
                     }
                 }
                 
-                
                 // Compact header with info button
                 HStack(spacing: 12) {
                     Circle()
@@ -94,8 +93,6 @@ struct DeviceDetailView: View {
                 .frame(height: 66)
                 .background(Color(NSColor.controlBackgroundColor))
 
-
-
                 
                 Divider()
                 
@@ -107,11 +104,16 @@ struct DeviceDetailView: View {
                             selectedSourcePath: $selectedSourcePath,
                             showFolderBrowser: $showFolderBrowser,
                             destinationFolder: $destinationFolder,
+                            onSyncStart: {
+                                syncedPhotoCount = 0
+                                showSuccessAlert = false
+                            },
                             onSyncComplete: { count in
                                 syncedPhotoCount = count
                                 showSuccessAlert = true
                             }
                         )
+
                         
                         Spacer()
                     }
@@ -148,7 +150,7 @@ struct DeviceDetailView: View {
                 selectedPath: $selectedSourcePath
             )
         }
-        .sheet(isPresented: $showDeviceInfo) {  // ← Device info popover
+        .sheet(isPresented: $showDeviceInfo) { 
             DeviceInfoPopover(device: device)
         }
         .alert("Sync Complete!", isPresented: $showSuccessAlert) {

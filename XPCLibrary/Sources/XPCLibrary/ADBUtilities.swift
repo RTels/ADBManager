@@ -45,7 +45,7 @@ public enum ADBError: Error, LocalizedError {
         case .invalidOutput:
             return "Could not decode ADB command output"
         case .commandFailed(let message):
-            return "ADB command failed: \(message)"
+            return message
         case .deviceDisconnected:
             return "Device disconnected during operation"
         }
