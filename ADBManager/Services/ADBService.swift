@@ -119,13 +119,27 @@ class ADBService: ObservableObject {
         from sourcePath: String,
         to destinationPath: String
     ) async -> Int? {
+        let previousPartialCount = partialSyncCount ?? 0
+
         needsReconnection = false
         isReconnecting = false
         deviceReconnected = false
         deviceConfirmedGone = false
         disconnectedDeviceId = nil
-        
-        return await syncPhotos(for: device, from: sourcePath, to: destinationPath)
+        partialSyncCount = nil
+
+        let result = await syncPhotos(for: device, from: sourcePath, to: destinationPath)
+
+        // If disconnected again during resume, accumulate the partial counts
+        if needsReconnection, let currentPartial = partialSyncCount {
+            partialSyncCount = previousPartialCount + currentPartial
+        }
+
+        // Return the total count including photos synced before the previous disconnect
+        if let count = result {
+            return previousPartialCount + count
+        }
+        return nil
     }
     
     
@@ -172,10 +186,14 @@ class ADBService: ObservableObject {
                 return count
                 
             } catch {
-                let partialCount = syncProgressCurrent
-                
-                syncProgress = nil
                 stopSyncProgressPolling()
+
+                // Fetch the authoritative count directly from the XPC service,
+                // which sets it to actuallySyncedCount in its catch block.
+                let finalProgress = await client.getPhotoSyncProgress()
+                let partialCount = finalProgress.current
+
+                syncProgress = nil
                 isSyncing = false
                 syncCurrentPhoto = ""
                 

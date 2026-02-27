@@ -153,15 +153,48 @@ struct DeviceDetailView: View {
         .sheet(isPresented: $showDeviceInfo) { 
             DeviceInfoPopover(device: device)
         }
-        .alert("Sync Complete!", isPresented: $showSuccessAlert) {
-            Button("Open Folder") {
-                if let folder = destinationFolder {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: folder))
+        .overlay {
+            if showSuccessAlert {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.green)
+
+                    Text("Sync Complete!")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text("Successfully synced \(syncedPhotoCount) photo\(syncedPhotoCount == 1 ? "" : "s")!")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Divider()
+                        .padding(.vertical, 8)
+
+                    HStack(spacing: 12) {
+                        Button("OK") {
+                            showSuccessAlert = false
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Open Folder") {
+                            if let folder = destinationFolder {
+                                NSWorkspace.shared.open(URL(fileURLWithPath: folder))
+                            }
+                            showSuccessAlert = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
+                .padding(32)
+                .frame(width: 400)
+                .background(Color(NSColor.windowBackgroundColor))
+                .cornerRadius(12)
+                .shadow(radius: 20)
             }
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Successfully synced \(syncedPhotoCount) photo\(syncedPhotoCount == 1 ? "" : "s")!")
         }
     }
     
