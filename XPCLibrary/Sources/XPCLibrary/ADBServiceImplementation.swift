@@ -51,7 +51,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
             adbPath: adbPath,
             deviceId: deviceId,
             command: "shell",
-            args: ["find", path, "-maxdepth", "1", "-type", "d"]
+            args: ["find", shellEscape(path), "-maxdepth", "1", "-type", "d"]
         )
         
         let allPaths = dirOutput
@@ -150,6 +150,13 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         completion(current, total, file)
     }
     
+    // MARK: - Private Helpers
+    
+    private func shellEscape(_ path: String) -> String {
+        // Escape single quotes by replacing ' with '\''
+        // Then wrap the whole thing in single quotes
+        return "'\(path.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
     
     private func pollDevices() async {
         do {
@@ -328,73 +335,77 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
         return devices
     }
     
+    // MARK: - Photo Sync Implementation
     
     private func performPhotoSync(
-        deviceId: String,
-        sourcePath: String,
-        destinationPath: String
-    ) async throws -> Int {
-        let adbPath = try getADBPath()
-        
-        let photoFiles = try await listPhotosOnDevice(
-            adbPath: adbPath,
-            deviceId: deviceId,
-            sourcePath: sourcePath
-        )
-        
-        guard !photoFiles.isEmpty else {
-            throw ADBError.commandFailed("No photos found in this folder.\n\nPlease select a different folder with images.")
-        }
-        
-        print("Found \(photoFiles.count) photos on device")
-        
-        try createDestinationFolder(at: destinationPath)
-        
-        let totalCount = photoFiles.count
-        var processedCount = 0
-        var actuallySyncedCount = 0
-        
-        updateSyncProgress(current: 0, total: totalCount)
-        
-        do {
-            for photoFile in photoFiles {
-                let destinationFile = (destinationPath as NSString).appendingPathComponent(photoFile)
-                
-                processedCount += 1
-                
-                if FileManager.default.fileExists(atPath: destinationFile) {
-                    print("Skipping \(photoFile) (already exists)")
-                    updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Skipped: \(photoFile)")
-                    continue
-                }
-                
-                updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Syncing: \(photoFile)")
-                
-                try await pullPhoto(
-                    adbPath: adbPath,
-                    deviceId: deviceId,
-                    sourcePath: sourcePath,
-                    fileName: photoFile,
-                    destinationPath: destinationPath
-                )
-                
-                actuallySyncedCount += 1
-                updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Completed: \(photoFile)")
-                print("Synced \(photoFile) (\(actuallySyncedCount) new, \(processedCount)/\(totalCount) processed)")
+            deviceId: String,
+            sourcePath: String,
+            destinationPath: String
+        ) async throws -> Int {
+            let adbPath = try getADBPath()
+            
+            updateSyncProgress(current: 0, total: 0)
+            
+            let photoFiles = try await listPhotosOnDevice(
+                adbPath: adbPath,
+                deviceId: deviceId,
+                sourcePath: sourcePath
+            )
+            
+            guard !photoFiles.isEmpty else {
+                throw ADBError.commandFailed("No photos found in this folder.\n\nPlease select a different folder with images.")
             }
             
-            print("Sync complete! \(actuallySyncedCount) new photos synced")
-            return actuallySyncedCount
+            print("Found \(photoFiles.count) photos on device")
             
-        } catch {
-            print("Sync interrupted: \(error.localizedDescription)")
-            print("Partial sync: \(actuallySyncedCount) photos synced before interruption")
+            try createDestinationFolder(at: destinationPath)
             
-            updateSyncProgress(current: actuallySyncedCount, total: totalCount)
+            let totalCount = photoFiles.count
+            var processedCount = 0
+            var actuallySyncedCount = 0
             
-            throw error
+            updateSyncProgress(current: 0, total: totalCount)
+            
+            do {
+                for photoFile in photoFiles {
+                    let destinationFile = (destinationPath as NSString).appendingPathComponent(photoFile)
+                    
+                    processedCount += 1
+                    
+                    if FileManager.default.fileExists(atPath: destinationFile) {
+                        print("Skipping \(photoFile) (already exists)")
+                        updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Skipped: \(photoFile)")
+                        continue
+                    }
+                    
+                    updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Syncing: \(photoFile)")
+                    
+                    try await pullPhoto(
+                        adbPath: adbPath,
+                        deviceId: deviceId,
+                        sourcePath: sourcePath,
+                        fileName: photoFile,
+                        destinationPath: destinationPath
+                    )
+                    
+                    actuallySyncedCount += 1
+                    updateSyncProgress(current: processedCount, total: totalCount, currentFile: "Completed: \(photoFile)")
+                    print("Synced \(photoFile) (\(actuallySyncedCount) new, \(processedCount)/\(totalCount) processed)")
+                }
+                
+                print("Sync complete! \(actuallySyncedCount) new photos synced")
+                return actuallySyncedCount
+                
+            } catch {
+                print("Sync interrupted: \(error.localizedDescription)")
+                print("Partial sync: \(actuallySyncedCount) photos synced before interruption")
+                
+                updateSyncProgress(current: actuallySyncedCount, total: totalCount)
+                
+                throw error
+            }
         }
-    }
+
     
     private func listPhotosOnDevice(
         adbPath: String,
@@ -409,7 +420,7 @@ public final class ADBServiceImplementation: NSObject, ADBServiceProtocol, @unch
                 adbPath: adbPath,
                 deviceId: deviceId,
                 command: "shell",
-                args: ["find", sourcePath, "-maxdepth", "1", "-type", "f", "-iname", "*.\(ext)"]
+                args: ["find", shellEscape(sourcePath), "-maxdepth", "1", "-type", "f", "-iname", "*.\(ext)"]
             )
             
             let photos = output

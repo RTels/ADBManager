@@ -76,7 +76,6 @@ class ADBService: ObservableObject {
                     deviceConfirmedGone = true
                 } else if deviceConfirmedGone && deviceExists {
                     deviceReconnected = true
-                    isReconnecting = false
                 }
             }
             for device in fetchedDevices where device.state == .device {
@@ -113,85 +112,114 @@ class ADBService: ObservableObject {
     }
 
     
-    func syncPhotos(
-        for device: Device,
-        from sourcePath: String,
-        to destinationPath: String
-    ) async -> Int? {
-        isSyncing = true
-        syncProgress = "Starting sync..."
-        error = nil
-        
-        stopMonitoring()
-        startSyncProgressPolling()
-        
-        do {
-            let count = try await client.startPhotoSync(
-                deviceId: device.id,
-                sourcePath: sourcePath,
-                destinationPath: destinationPath
-            )
-            
-            syncProgress = "Sync complete!"
-            
-            Task {
-                try? await Task.sleep(for: .seconds(3))
-                await MainActor.run {
-                    if syncProgress == "Sync complete!" {
-                        syncProgress = nil
-                    }
-                }
-            }
-            
-            stopSyncProgressPolling()
-            isSyncing = false
-            syncCurrentPhoto = ""
-            startMonitoring()
-            return count
-            
-        } catch {
-            let partialCount = syncProgressCurrent
-            
-            syncProgress = nil
-            stopSyncProgressPolling()
-            isSyncing = false
-            syncCurrentPhoto = ""
-            
-            let errorMessage = error.localizedDescription
-            let isDisconnectionError = errorMessage.contains("device offline") ||
-                                       errorMessage.contains("device not found") ||
-                                       errorMessage.contains("disconnected")
-            
-            if isDisconnectionError {
-                needsReconnection = true
-                isReconnecting = true
-                deviceConfirmedGone = false
-                partialSyncCount = partialCount > 0 ? partialCount : nil
-                disconnectedDeviceId = device.id
-            }
-            
-            self.error = errorMessage
-            
-            startMonitoring()
-            
-            return partialCount > 0 ? partialCount : nil
-        }
 
-    }
     
     func resumeSync(
         for device: Device,
         from sourcePath: String,
         to destinationPath: String
     ) async -> Int? {
+        let previousPartialCount = partialSyncCount ?? 0
+
         needsReconnection = false
         isReconnecting = false
         deviceReconnected = false
+        deviceConfirmedGone = false
         disconnectedDeviceId = nil
-        
-        return await syncPhotos(for: device, from: sourcePath, to: destinationPath)
+        partialSyncCount = nil
+
+        let result = await syncPhotos(for: device, from: sourcePath, to: destinationPath)
+
+        // If disconnected again during resume, accumulate the partial counts
+        if needsReconnection, let currentPartial = partialSyncCount {
+            partialSyncCount = previousPartialCount + currentPartial
+        }
+
+        // Return the total count including photos synced before the previous disconnect
+        if let count = result {
+            return previousPartialCount + count
+        }
+        return nil
     }
     
+    
+    func syncPhotos(
+            for device: Device,
+            from sourcePath: String,
+            to destinationPath: String
+        ) async -> Int? {
+            syncProgress = nil
+            syncCurrentCount = 0
+            syncTotalCount = 0
+            syncCurrentPhoto = ""
+            syncProgressCurrent = 0
+            isSyncing = true
+            syncProgress = "Starting sync..."
+            error = nil
+            
+            stopMonitoring()
+            startSyncProgressPolling()
+            
+            do {
+                let count = try await client.startPhotoSync(
+                    deviceId: device.id,
+                    sourcePath: sourcePath,
+                    destinationPath: destinationPath
+                )
+                if count > 0 {
+                    syncProgress = "Sync complete!"
+                    
+                    Task {
+                        try? await Task.sleep(for: .seconds(3))
+                        await MainActor.run {
+                            if syncProgress == "Sync complete!" {
+                                syncProgress = nil
+                            }
+                        }
+                    }
+                }
+                
+                stopSyncProgressPolling()
+                isSyncing = false
+                syncCurrentPhoto = ""
+                startMonitoring()
+                return count
+                
+            } catch {
+                stopSyncProgressPolling()
+
+                // Fetch the authoritative count directly from the XPC service,
+                // which sets it to actuallySyncedCount in its catch block.
+                let finalProgress = await client.getPhotoSyncProgress()
+                let partialCount = finalProgress.current
+
+                syncProgress = nil
+                isSyncing = false
+                syncCurrentPhoto = ""
+                
+                let errorMessage = error.localizedDescription
+                let isDisconnectionError = errorMessage.contains("device offline") ||
+                                           errorMessage.contains("device not found") ||
+                                           errorMessage.contains("disconnected") ||
+                                           errorMessage.contains("connect failed") ||
+                                           errorMessage.contains("closed") ||
+                                           errorMessage.contains("Failed to pull")
+                
+                if isDisconnectionError {
+                    needsReconnection = true
+                    isReconnecting = true
+                    deviceConfirmedGone = false
+                    partialSyncCount = partialCount > 0 ? partialCount : nil
+                    disconnectedDeviceId = device.id
+                    self.error = nil
+                }
+                self.error = errorMessage
+                startMonitoring()
+                return partialCount > 0 ? partialCount : nil
+            }
+        }
+
+
     
     private func startSyncProgressPolling() {
         syncProgressTask?.cancel()

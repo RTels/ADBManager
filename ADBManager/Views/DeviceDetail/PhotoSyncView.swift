@@ -15,6 +15,7 @@ struct PhotoSyncView: View {
     @Binding var showFolderBrowser: Bool
     @Binding var destinationFolder: String?
     
+    let onSyncStart: () -> Void
     let onSyncComplete: (Int) -> Void
     
     var body: some View {
@@ -156,15 +157,17 @@ struct PhotoSyncView: View {
         }
         
         destinationFolder = url.path
+        onSyncStart()
         
         if let count = await adbService.syncPhotos(
             for: device,
             from: sourcePath,
             to: url.path
         ) {
+            // Only show success if we're NOT in reconnection mode
             if count > 0 && !adbService.needsReconnection {
                 onSyncComplete(count)
-            } else if count == 0 {
+            } else if count == 0 && !adbService.needsReconnection {
                 adbService.error = "All photos already exist in destination folder. Nothing to sync."
             }
         }
@@ -186,6 +189,7 @@ struct PhotoSyncView: View {
         selectedSourcePath: .constant("/sdcard/DCIM/Camera/"),
         showFolderBrowser: .constant(false),
         destinationFolder: .constant(nil),
+        onSyncStart: { },
         onSyncComplete: { _ in }
     )
     .padding()
@@ -211,6 +215,7 @@ struct PhotoSyncView: View {
         selectedSourcePath: .constant("/sdcard/DCIM/Camera/"),
         showFolderBrowser: .constant(false),
         destinationFolder: .constant(nil),
+        onSyncStart: { },
         onSyncComplete: { _ in }
     )
     .padding()
